@@ -1,0 +1,24 @@
+{
+    "simulation": {
+        "duration": 86400,
+        "hydraulic_step": 300,
+        "report_step": 300
+    },
+    "network": {
+        "inp_file": "Net1.inp"
+    },
+    "target": {
+        "node_id": "11",
+        "target_pressure": 30.0
+    },
+    "actuator": {
+        "link_id": "10",
+        "initial_setting": 1.0
+    },
+    "pid_params": {
+        "kp": 0.5,
+        "ki": 0.1,
+        "kd": 0.05,
+        "setpoint": 30.0
+    }
+}

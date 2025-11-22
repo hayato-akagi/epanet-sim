@@ -1,0 +1,84 @@
+version: '3'
+
+services:
+  # -------------------------------------------------------
+  # 制御ロジック 1: PID Controller (Port 5000)
+  # -------------------------------------------------------
+  controller-pid:
+    build: ./controller-pid
+    container_name: controller-pid
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./shared:/shared
+    networks:
+      - epanet-net
+    restart: always
+
+  # -------------------------------------------------------
+  # 制御ロジック 2: MPC Controller (Port 5001)
+  # -------------------------------------------------------
+  controller-mpc:
+    build: ./controller-mpc
+    container_name: controller-mpc
+    ports:
+      - "5001:5000"
+    volumes:
+      - ./shared:/shared
+    networks:
+      - epanet-net
+    restart: always
+
+  # -------------------------------------------------------
+  # シミュレーション実行エンジン
+  # -------------------------------------------------------
+  sim-runner:
+    build: ./sim-runner
+    container_name: sim-runner
+    volumes:
+      - ./shared:/shared
+    networks:
+      - epanet-net
+    environment:
+      - CONFIG_PATH=/shared/configs/${EXP_CONFIG_FILE:-exp_001.json}
+      - EXP_ID=${EXP_ID:-exp_001}
+      
+      # ここで接続先を切り替えます。
+      # デフォルトは PID (controller-pid:5000)
+      # MPCを使う場合は controller-mpc:5000 に変更
+      - CONTROLLER_URL=http://${CONTROLLER_HOST:-controller-pid}:5000/control
+      
+      - NETWORK_DIR=/shared/networks
+      - OUTPUT_PATH=/shared/results
+    depends_on:
+      - controller-pid
+      - controller-mpc
+
+  metrics-calculator:
+    build: ./metrics
+    container_name: metrics-calculator
+    volumes:
+      - ./shared:/shared
+    environment:
+      - INPUT_PATH=/shared/results
+    networks:
+      - epanet-net
+    restart: always
+
+  visualization:
+    build: ./visualization
+    container_name: visualization
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./shared:/shared
+    networks:
+      - epanet-net
+    environment:
+      - RESULTS_DIR=/shared/results
+      - NETWORKS_DIR=/shared/networks
+    restart: always
+
+networks:
+  epanet-net:
+    driver: bridge
