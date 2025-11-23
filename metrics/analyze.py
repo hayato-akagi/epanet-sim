@@ -11,16 +11,45 @@ def calculate_metrics(csv_path):
     try:
         df = pd.read_csv(csv_path)
         
-        # 必要なカラムの確認
-        required_cols = ['Time', 'Pressure', 'TargetPressure', 'ValveSetting']
+        # 制御モードの判定
+        if 'ControlMode' in df.columns:
+            control_mode = df['ControlMode'].iloc[0]
+        else:
+            control_mode = 'pressure'  # デフォルト
+        
+        # 必要なカラムの確認（基本カラム）
+        required_cols = ['Time', 'ValveSetting']
         if not all(col in df.columns for col in required_cols):
             return None
+        
+        # 制御対象値とターゲット値の取得
+        if 'ControlledValue' in df.columns and 'TargetValue' in df.columns:
+            # 新形式
+            controlled = df['ControlledValue']
+            target = df['TargetValue']
+        else:
+            # 旧形式（後方互換性）
+            if control_mode == 'flow':
+                if 'Flow' not in df.columns or 'TargetFlow' not in df.columns:
+                    return None
+                controlled = df['Flow']
+                target = df['TargetFlow']
+            else:
+                if 'Pressure' not in df.columns or 'TargetPressure' not in df.columns:
+                    return None
+                controlled = df['Pressure']
+                target = df['TargetPressure']
 
         # --- 前処理 ---
         dt = df['Time'].diff().mean()
         if pd.isna(dt): dt = 300.0
 
-        error = df['TargetPressure'] - df['Pressure']
+        # エラー計算
+        if 'Error' in df.columns:
+            error = df['Error']
+        else:
+            error = target - controlled
+        
         abs_error = error.abs()
         squared_error = error ** 2
 
@@ -32,20 +61,37 @@ def calculate_metrics(csv_path):
         ise = np.trapz(squared_error, dx=dt)
         valve_diff = df['ValveSetting'].diff().abs().sum()
         mean_valve = df['ValveSetting'].mean()
+        
+        # 定常状態性能（後半50%）
+        steady_idx = len(df) // 2
+        steady_error = error.iloc[steady_idx:]
+        steady_mae = steady_error.abs().mean()
+        steady_rmse = np.sqrt((steady_error ** 2).mean())
 
         # CSV用のフラットな辞書を作成
         metrics = {
             "SourceFile": os.path.basename(csv_path),
             "ProcessedAt": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "ControlMode": control_mode,
             "DurationSec": float(df['Time'].iloc[-1] - df['Time'].iloc[0]),
+            "TargetValue": float(target.iloc[0]) if len(target) > 0 else 0.0,
+            "MeanControlledValue": float(controlled.mean()),
             "MAE": float(mae),
             "RMSE": float(rmse),
             "MaxError": float(max_error),
             "IAE": float(iae),
             "ISE": float(ise),
+            "SteadyMAE": float(steady_mae),
+            "SteadyRMSE": float(steady_rmse),
             "TotalVariation": float(valve_diff),
             "MeanValve": float(mean_valve)
         }
+        
+        # 圧力と流量の両方を記録（利用可能な場合）
+        if 'Pressure' in df.columns:
+            metrics['MeanPressure'] = float(df['Pressure'].mean())
+        if 'Flow' in df.columns:
+            metrics['MeanFlow'] = float(df['Flow'].mean())
         
         return metrics
 

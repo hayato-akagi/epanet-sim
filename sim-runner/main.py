@@ -5,6 +5,7 @@ import shutil
 import requests
 import pandas as pd
 from epyt import epanet
+import numpy as np
 
 class RemoteValveControlEnv:
     def __init__(self, config_path, network_dir, controller_url, output_root, exp_id):
@@ -30,26 +31,44 @@ class RemoteValveControlEnv:
         self.target_config = self.config['target']
         self.actuator_config = self.config['actuator']
         self.pid_params = self.config.get('pid_params', {})
-        self.mpc_params = self.config.get('mpc_params', {}) # MPCパラメータ読み込み
+        self.mpc_params = self.config.get('mpc_params', {})
+        
+        # 制御モードの読み込み (デフォルトは圧力制御)
+        self.control_mode = self.config.get('control_mode', 'pressure')
         
         self.results = []
         
         print(f"Loading Network: {self.network_path}")
+        print(f"Control Mode: {self.control_mode}")
         try:
             self.epanet_api = epanet(self.network_path)
         except Exception as e:
             print(f"Error loading INP file: {self.network_path}")
             print("Please ensure the file exists in shared/networks/")
             raise e
+    
+    def _to_float(self, value):
+        """
+        EPANETから返される値を安全にfloatに変換
+        - 0次元配列（スカラー）: np.ndarray.item() を使用
+        - 1次元配列: 最初の要素を取得
+        - その他: そのままfloatに変換
+        """
+        if isinstance(value, np.ndarray):
+            if value.ndim == 0:  # 0次元配列（スカラー）
+                return float(value.item())
+            else:  # 1次元以上の配列
+                return float(value.flat[0])
+        return float(value)
 
     def wait_for_controller(self):
         print("Waiting for controller...")
         max_retries = 10
         for i in range(max_retries):
             try:
-                # pid_paramsに加え、mpc_paramsも送信
                 payload = {
-                    "init": True, 
+                    "init": True,
+                    "control_mode": self.control_mode,  # 制御モードを送信
                     "pid_params": self.pid_params,
                     "mpc_params": self.mpc_params
                 }
@@ -86,14 +105,23 @@ class RemoteValveControlEnv:
         while current_time < duration:
             t = self.epanet_api.runHydraulicAnalysis()
             
-            measured_pressure = self.epanet_api.getNodePressure(node_idx)
-            flow = self.epanet_api.getLinkFlows(link_idx)
+            # EPANETから値を取得してfloatに変換
+            measured_pressure = self._to_float(self.epanet_api.getNodePressure(node_idx))
+            flow = self._to_float(self.epanet_api.getLinkFlows(link_idx))
+            
+            # 制御モードに応じて制御対象値と目標値を選択
+            if self.control_mode == 'flow':
+                controlled_value = flow
+                target_value = self.target_config.get('target_flow', 100.0)
+            else:  # pressure
+                controlled_value = measured_pressure
+                target_value = self.target_config.get('target_pressure', 30.0)
             
             payload = {
                 "time_step": current_time,
                 "sensor_data": {
-                    "pressure": measured_pressure,
-                    "target": self.target_config['target_pressure']
+                    "pressure": controlled_value,  # 制御対象の値（pressureという名前だが実際は制御対象値）
+                    "target": target_value
                 },
                 "prev_action": current_valve_setting
             }
@@ -109,12 +137,17 @@ class RemoteValveControlEnv:
                     "Time": current_time,
                     "Pressure": measured_pressure,
                     "Flow": flow,
-                    "TargetPressure": self.target_config['target_pressure'],
+                    "ControlMode": self.control_mode,
+                    "ControlledValue": controlled_value,
+                    "TargetValue": target_value,
+                    "TargetPressure": self.target_config.get('target_pressure', 0),
+                    "TargetFlow": self.target_config.get('target_flow', 0),
                     "ValveSetting": current_valve_setting,
                     "NewValveSetting": new_valve_setting,
                     "PID_P": response_data.get("p_term", 0),
                     "PID_I": response_data.get("i_term", 0),
-                    "PID_D": response_data.get("d_term", 0)
+                    "PID_D": response_data.get("d_term", 0),
+                    "Error": response_data.get("error", 0)
                 })
                 
                 current_valve_setting = new_valve_setting
