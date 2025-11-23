@@ -1,5 +1,5 @@
 {
-  "control_mode": "flow",
+  "control_mode": "pressure",
   "network": {
     "inp_file": "Net1.inp"
   },
@@ -7,26 +7,39 @@
     "duration": 86400,
     "hydraulic_step": 3600
   },
-  "target": {
-    "node_id": "2",
-    "target_pressure": 30.0,
-    "target_flow": 100.0
-  },
-  "actuator": {
-    "link_id": "10",
-    "initial_setting": 0.5
-  },
-  "pid_params": {
-    "Kp": 0.02,
-    "Ki": 0.001,
-    "Kd": 0.05
-  },
-    "mpc_params": {
-        "horizon": 10,
-        "dt": 300,
-        "tau": 1800.0,
-        "K": 50.0,
-        "weight_error": 1.0,
-        "weight_du": 10.0
+  "control_loops": [
+    {
+      "loop_id": "loop_1",
+      "target": {
+        "node_id": "2",
+        "target_pressure": 30.0,
+        "target_flow": 100.0
+      },
+      "actuator": {
+        "link_id": "10",
+        "initial_setting": 0.5
+      },
+      "pid_params": {
+        "Kp": 0.02,
+        "Ki": 0.001,
+        "Kd": 0.05
+      }
+    },
+    {
+      "loop_id": "loop_2",
+      "target": {
+        "node_id": "5",
+        "target_pressure": 25.0
+      },
+      "actuator": {
+        "link_id": "12",
+        "initial_setting": 0.6
+      },
+      "pid_params": {
+        "Kp": 0.03,
+        "Ki": 0.002,
+        "Kd": 0.06
+      }
     }
+  ]
 }

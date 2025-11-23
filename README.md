@@ -2,6 +2,12 @@
 
 EPANETを用いた水理シミュレーションと、外部のPythonベースの制御ロジック（PID, MPC）を疎結合で連携させるシミュレーション基盤です。Podman Compose (Docker Compose) 上で動作し、リアルタイムに近い「Sense-Decide-Actuate」ループを再現します。
 
+**主な特徴:**
+- 圧力制御・流量制御の両対応
+- 単一ループ・複数ループ（分散制御）の両対応
+- PID・MPC両方のコントローラ実装
+- リアルタイム性能評価と3D可視化
+
 ## **システム構成**
 
 システムは以下の5つのコンテナサービスで構成されています。
@@ -62,6 +68,20 @@ graph TD
 
 制御モードは設定ファイルの `control_mode` パラメータで指定します。
 
+## **制御ループ構成**
+
+### **単一ループ制御**
+1つのセンサーと1つのアクチュエータによる基本的な制御ループ。
+
+### **複数ループ制御（分散制御）**
+複数のセンサー-アクチュエータペアを独立して制御。各ループは以下を持ちます：
+- 独立したセンサーノード
+- 独立したアクチュエータバルブ
+- 独立した制御パラメータ（PIDゲイン、MPC設定）
+- 独立した目標値
+
+**注意**: 現在の実装は分散制御（各ループが独立）です。ループ間の相互作用は考慮されません。
+
 ## **クイックスタート**
 
 ### **前提条件**
@@ -101,7 +121,18 @@ CONTROLLER_HOST=controller-mpc \
 podman-compose up --build
 ```
 
-### **4. 結果の確認**
+### **4. 複数ループ制御の実行**
+
+複数ループの設定ファイルを使用します。
+
+```bash
+EXP_CONFIG_FILE=exp_multi_loop.json \
+EXP_ID=exp_multi_01 \
+CONTROLLER_HOST=controller-pid \
+podman-compose up --build
+```
+
+### **5. 結果の確認**
 
 ブラウザで http://localhost:8501 にアクセスし、Visualizationダッシュボードを開きます。
 
@@ -109,7 +140,7 @@ podman-compose up --build
 
 実験設定は shared/configs/\*.json で管理されます。
 
-### **全体構造**
+### **単一ループ設定の全体構造**
 
 ```json
 {
@@ -123,6 +154,30 @@ podman-compose up --build
 }
 ```
 
+### **複数ループ設定の全体構造**
+
+```json
+{
+  "control_mode": "pressure",
+  "network": { ... },
+  "simulation": { ... },
+  "control_loops": [
+    {
+      "loop_id": "loop_1",
+      "target": { ... },
+      "actuator": { ... },
+      "pid_params": { ... }
+    },
+    {
+      "loop_id": "loop_2",
+      "target": { ... },
+      "actuator": { ... },
+      "pid_params": { ... }
+    }
+  ]
+}
+```
+
 ### **制御モード設定 (control_mode)**
 
 | パラメータ | 値 | 説明 |
@@ -130,9 +185,7 @@ podman-compose up --build
 | control_mode | "pressure" | 圧力制御モード（デフォルト） |
 |  | "flow" | 流量制御モード |
 
-### **基本構造 (simulation, network, target, actuator)**
-
-全ての制御モードで共通の設定です。
+### **基本構造 (simulation, network)**
 
 #### **simulation**
 
@@ -146,6 +199,8 @@ podman-compose up --build
 | パラメータ | 説明 |
 |:---|:---|
 | inp_file | 使用するEPANETネットワークファイル名<br>例: "Net1.inp" |
+
+### **単一ループ設定 (target, actuator)**
 
 #### **target**
 
@@ -162,6 +217,67 @@ podman-compose up --build
 | link_id | 操作対象となるバルブ（リンク）ID |
 | initial_setting | シミュレーション開始時のバルブ初期開度 (0.0〜1.0)<br>0.5 (半開) が一般的 |
 
+### **複数ループ設定 (control_loops)**
+
+`control_loops`配列の各要素は以下の構造を持ちます：
+
+| パラメータ | 説明 |
+|:---|:---|
+| loop_id | ループの識別子（例: "loop_1", "loop_2"） |
+| target | このループの観測ノードと目標値 |
+| actuator | このループの制御バルブ |
+| pid_params | このループのPID制御パラメータ（オプション） |
+| mpc_params | このループのMPC制御パラメータ（オプション） |
+
+**複数ループ設定例:**
+
+```json
+{
+  "control_mode": "pressure",
+  "simulation": {
+    "duration": 86400,
+    "hydraulic_step": 3600
+  },
+  "network": {
+    "inp_file": "Net1.inp"
+  },
+  "control_loops": [
+    {
+      "loop_id": "loop_1",
+      "target": {
+        "node_id": "2",
+        "target_pressure": 30.0
+      },
+      "actuator": {
+        "link_id": "10",
+        "initial_setting": 0.5
+      },
+      "pid_params": {
+        "Kp": 0.02,
+        "Ki": 0.001,
+        "Kd": 0.05
+      }
+    },
+    {
+      "loop_id": "loop_2",
+      "target": {
+        "node_id": "5",
+        "target_pressure": 25.0
+      },
+      "actuator": {
+        "link_id": "12",
+        "initial_setting": 0.6
+      },
+      "pid_params": {
+        "Kp": 0.03,
+        "Ki": 0.002,
+        "Kd": 0.06
+      }
+    }
+  ]
+}
+```
+
 ### **PID制御用設定 (pid_params)**
 
 controller-pid を使用する場合に参照されます。
@@ -170,9 +286,9 @@ controller-pid を使用する場合に参照されます。
 
 | パラメータ | 説明 | チューニング指針 |
 |:---|:---|:---|
-| kp | **比例ゲイン**<br>現在の偏差に対する操作量の強さ | 大: 応答速度↑、振動リスク↑<br>小: 安定↑、応答速度↓ |
-| ki | **積分ゲイン**<br>過去の累積偏差に対する補正（定常偏差除去） | 大: 定常偏差除去↑、振動リスク↑<br>小: 安定↑、定常偏差残存 |
-| kd | **微分ゲイン**<br>偏差の変化率に対する反応（オーバーシュート抑制） | 大: オーバーシュート抑制↑、ノイズ増幅<br>小: 滑らか、オーバーシュート許容 |
+| Kp (または kp) | **比例ゲイン**<br>現在の偏差に対する操作量の強さ | 大: 応答速度↑、振動リスク↑<br>小: 安定↑、応答速度↓ |
+| Ki (または ki) | **積分ゲイン**<br>過去の累積偏差に対する補正（定常偏差除去） | 大: 定常偏差除去↑、振動リスク↑<br>小: 安定↑、定常偏差残存 |
+| Kd (または kd) | **微分ゲイン**<br>偏差の変化率に対する反応（オーバーシュート抑制） | 大: オーバーシュート抑制↑、ノイズ増幅<br>小: 滑らか、オーバーシュート許容 |
 | setpoint | 目標値（通常は target の値と同じ） | target_pressure または target_flow と一致 |
 
 #### **モード別パラメータ（オプション）**
@@ -188,9 +304,9 @@ controller-pid を使用する場合に参照されます。
 
 ```json
 "pid_params": {
-    "kp": 0.5,
-    "ki": 0.1,
-    "kd": 0.05,
+    "Kp": 0.5,
+    "Ki": 0.1,
+    "Kd": 0.05,
     "setpoint": 30.0
 }
 ```
@@ -199,9 +315,9 @@ controller-pid を使用する場合に参照されます。
 
 ```json
 "pid_params": {
-    "kp": 0.01,
-    "ki": 0.001,
-    "kd": 0.02,
+    "Kp": 0.01,
+    "Ki": 0.001,
+    "Kd": 0.02,
     "kp_flow": 0.01,
     "ki_flow": 0.001,
     "kd_flow": 0.02,
@@ -270,6 +386,7 @@ controller-mpc を使用する場合に参照されます。本システムで�
 | カラム | 説明 |
 |:---|:---|
 | Time | シミュレーション時刻（秒） |
+| LoopID | ループ識別子（複数ループの場合のみ） |
 | Pressure | 観測ノードの圧力 (m) |
 | Flow | 観測リンクの流量 (m³/h) |
 | ControlMode | 制御モード ("pressure" or "flow") |
@@ -292,8 +409,10 @@ controller-mpc を使用する場合に参照されます。本システムで�
 |:---|:---|
 | SourceFile | 元となる result.csv のファイル名 |
 | ProcessedAt | 処理日時 |
+| LoopID | ループ識別子（"default", "loop_1", "ALL"など） |
 | ControlMode | 制御モード |
 | DurationSec | シミュレーション時間（秒） |
+| NumLoops | ループ数（全体指標のみ） |
 
 #### **制御性能指標**
 
@@ -328,9 +447,36 @@ controller-mpc を使用する場合に参照されます。本システムで�
 | MeanPressure | 平均圧力値 (m) |
 | MeanFlow | 平均流量値 (m³/h) |
 
+#### **複数ループの場合の特殊な行**
+
+`LoopID = "ALL"` の行には、全ループを統合した指標が記録されます：
+
+- **MAE, RMSE, SteadyMAE, SteadyRMSE**: 各ループの平均値
+- **MaxError**: 全ループの最大値
+- **IAE, ISE, TotalVariation**: 各ループの合計値
+- **NumLoops**: 制御ループの総数
+
 ## **Visualization機能**
 
 Streamlitダッシュボード (http://localhost:8501) では以下の機能を提供します。
+
+### **アーキテクチャ**
+
+可視化サービスは機能ごとにモジュール分割されています：
+
+```
+visualization/
+├── app.py                     # メインエントリーポイント
+├── utils/
+│   ├── constants.py           # 定数定義
+│   ├── data_loader.py         # データ読み込み
+│   └── inp_parser.py          # INPファイル解析
+└── tabs/
+    ├── network_3d.py          # 3D可視化
+    ├── control_performance.py # 制御性能グラフ
+    ├── time_series.py         # 時系列分析
+    └── metrics_view.py        # メトリクス表示
+```
 
 ### **Tab 1: 3D Network Visualization**
 
@@ -347,59 +493,97 @@ Streamlitダッシュボード (http://localhost:8501) では以下の機能を�
   - 🟧 **太いオレンジ線**: 制御バルブ（アクチュエータ）
   - ⚪ **細い灰色線**: 通常のパイプ
 
-- **インタラクティブ機能**
-  - マウスオーバーでノード/リンク詳細表示
-  - 3D回転・ズーム操作
-  - 制御構成の明示（センサー位置、アクチュエータ位置）
+- **複数ループ対応**
+  - すべてのセンサーノードとアクチュエータを同時表示
+  - 各ループの構成を一覧表示
 
 ### **Tab 2: Control Performance**
 
+- **ループ選択機能**（複数ループの場合）
+  - "All Loops": 全ループを重ねて表示
+  - 個別選択: 特定のループのみ表示
+
 - **制御追従グラフ**: 目標値と実測値の時系列比較
 - **バルブ操作量グラフ**: バルブ開度の時間変化
-- **システム状態グラフ**: 圧力と流量の両方を表示
+- **システム状態グラフ**: 圧力と流量の両方を表示（複数ループ対応）
 - **制御誤差グラフ**: 時間経過に伴う誤差の推移
 - **コントローラ内部状態**: PID各項（P, I, D）の可視化
 
 ### **Tab 3: Time Series Analysis**
 
+- **ループフィルター機能**（複数ループの場合）
+  - 特定ループのデータのみ抽出可能
+  
 - **カスタムプロット**: 任意のカラムを選択して時系列グラフ作成
+  - 複数ループを色分けして表示
+  
 - **生データ表示**: result.csv の全データをテーブル表示
 
 ### **Tab 4: Metrics**
 
-- **性能指標のサマリー表示**
+#### **単一ループの場合**
+- 性能指標のサマリー表示
   - 制御モード、目標値
   - RMSE, MAE, Max Error
   - バルブ総変動量、定常状態性能
   - 平均圧力・平均流量
 
+#### **複数ループの場合**
+- **全体統合指標** (`LoopID = "ALL"`)
+  - ループ数
+  - 平均RMSE、平均MAE
+  - 最大誤差（全ループ中）
+  
+- **個別ループ性能**
+  - 各ループの詳細指標をテーブル表示
+  
+- **ループ比較バーグラフ**
+  - MAE, RMSE, TotalVariation, SteadyMAEを横並び比較
+  - ループ間の性能差を視覚的に確認
+
 ## **ディレクトリ構造**
 
 ```
 .
-├── controller-pid/      # PID制御ロジックのソースコード
-│   └── app.py
-├── controller-mpc/      # MPC制御ロジックのソースコード
-│   └── app.py
-├── sim-runner/          # EPANETシミュレーション実行エンジン
-│   └── main.py
-├── metrics/             # 結果CSVを監視し性能評価を行うコード
-│   └── analysis.py
-├── visualization/       # Streamlitダッシュボード
-│   └── app.py
-├── shared/              # ホストとコンテナ間で共有されるデータ
-│   ├── configs/         # 実験設定JSONファイル
-│   │   ├── exp_001.json
-│   │   ├── exp_mpc.json
-│   │   └── exp_flow_control.json
-│   ├── networks/        # EPANETモデルファイル (.inp)
+├── controller-pid/           # PID制御ロジックのソースコード
+│   ├── app.py               # 分散制御対応
+│   └── requirements.txt
+├── controller-mpc/           # MPC制御ロジックのソースコード
+│   ├── app.py               # 分散制御対応
+│   └── requirements.txt
+├── sim-runner/               # EPANETシミュレーション実行エンジン
+│   ├── main.py              # 複数ループ対応
+│   └── requirements.txt
+├── metrics/                  # 結果CSVを監視し性能評価を行うコード
+│   ├── analysis.py          # ループごと + 全体指標計算
+│   └── requirements.txt
+├── visualization/            # Streamlitダッシュボード
+│   ├── app.py               # メインエントリーポイント
+│   ├── utils/               # ユーティリティモジュール
+│   │   ├── constants.py
+│   │   ├── data_loader.py
+│   │   └── inp_parser.py
+│   ├── tabs/                # 各タブの実装
+│   │   ├── network_3d.py
+│   │   ├── control_performance.py
+│   │   ├── time_series.py
+│   │   └── metrics_view.py
+│   └── requirements.txt
+├── shared/                   # ホストとコンテナ間で共有されるデータ
+│   ├── configs/              # 実験設定JSONファイル
+│   │   ├── exp_001.json                # 単一ループ（圧力制御）
+│   │   ├── exp_flow_control.json       # 単一ループ（流量制御）
+│   │   ├── exp_mpc.json                # MPC制御
+│   │   └── exp_multi_loop.json         # 複数ループ
+│   ├── networks/             # EPANETモデルファイル (.inp)
 │   │   └── Net1.inp
-│   └── results/         # 実験IDごとの結果出力先
+│   └── results/              # 実験IDごとの結果出力先
 │       └── exp_001/
 │           ├── result.csv
 │           ├── metrics.csv
 │           └── exp_001_config.json
-└── podman-compose.yml
+├── podman-compose.yml
+└── README.md
 ```
 
 ## **トラブルシューティング**
@@ -415,16 +599,203 @@ Streamlitダッシュボード (http://localhost:8501) では以下の機能を�
 - **振動が発生**: PIDゲイン（特にKp, Kd）を下げる、またはweight_duを上げる
 - **応答が遅い**: PIDゲインを上げる、またはMPCのhorizonを調整
 - **定常偏差が残る**: Ki を上げる
+- **複数ループで干渉**: 現在の実装は分散制御のため、各ループのパラメータを個別に調整
+
+### **複数ループが動作しない**
+
+- 設定ファイルに `control_loops` 配列が正しく定義されているか確認
+- 各ループの `loop_id` がユニークか確認
+- ノードIDとリンクIDがINPファイルに存在するか確認
+- ログで "PID Controller Initialized for Loop 'loop_X'" が各ループ分表示されるか確認
 
 ### **結果が表示されない**
 
 - シミュレーションが完了しているか確認
 - shared/results/ に該当フォルダがあるか確認
+- result.csv と metrics.csv が生成されているか確認
 - ブラウザキャッシュをクリアして再読み込み
 
-## **今後の拡張**
+### **メトリクスが計算されない**
 
-- 複数ノード・複数バルブの協調制御
-- 需要パターンの動的変更
-- リアルタイムデータ連携
-- 機械学習ベースの制御アルゴリズム
+- metrics-calculator コンテナが起動しているか確認: `podman logs metrics-calculator`
+- result.csv のフォーマットが正しいか確認（必須カラム: Time, ValveSetting）
+- ループIDカラムが存在する場合、全行に値が入っているか確認
+
+## **設計の詳細**
+
+### **分散制御アーキテクチャ**
+
+現在の実装は**分散制御（Decentralized Control）**方式を採用しています：
+
+#### **特徴**
+- 各制御ループが独立して動作
+- ループ間の相互作用は考慮しない
+- コントローラ側で複数のPID/MPCインスタンスを辞書管理
+- sim-runnerが全ループのデータを一括送信・受信
+
+#### **利点**
+- 実装が比較的簡単
+- 計算負荷が低い
+- スケーラビリティが高い
+- 各ループを個別にチューニング可能
+
+#### **制限**
+- ループ間の干渉が発生する可能性
+- システム全体の最適化はできない
+- 水理的な結合（圧力・流量の相互依存）は考慮されない
+
+### **将来の拡張: 集中制御（MIMO-MPC）**
+
+より高度な制御が必要な場合、以下の拡張が考えられます：
+
+- **多入力多出力MPC (MIMO-MPC)**
+  - 全ループを統合した状態空間モデル
+  - システム全体を最適化
+  - ループ間の相互作用を明示的に考慮
+  - 実装の複雑度が高い
+
+## **パフォーマンス最適化**
+
+### **シミュレーション速度**
+
+- **hydraulic_step を大きくする**: 精度とのトレードオフ
+- **複数ループの場合**: 各ループが独立なため、並列化の余地あり（現状は未実装）
+
+### **メトリクス計算**
+
+- metrics-calculator は5秒ごとにファイルをポーリング
+- 大規模実験の場合、ポーリング間隔を調整可能
+
+### **可視化**
+
+- Streamlitはデフォルトでキャッシュを使用
+- 大量のデータポイントの場合、サンプリングして表示することを推奨
+
+## **開発ガイド**
+
+### **新しい制御アルゴリズムの追加**
+
+1. 新しいコントローラーサービスを作成（例: `controller-fuzzy/`）
+2. `/control` エンドポイントを実装
+3. 初期化時に `control_loops` 配列を受け取る
+4. `sensor_data` 配列を処理し、`actions` 配列を返す
+5. podman-compose.yml に追加
+
+### **新しいメトリクスの追加**
+
+`metrics/analysis.py` の `calculate_loop_metrics()` 関数を拡張：
+
+```python
+def calculate_loop_metrics(df_loop, loop_id, control_mode):
+    # ... 既存のコード ...
+    
+    # 新しいメトリクスを追加
+    metrics['your_new_metric'] = calculate_your_metric(df_loop)
+    
+    return metrics
+```
+
+### **可視化の拡張**
+
+新しいタブを追加する場合：
+
+1. `visualization/tabs/` に新しいファイルを作成（例: `custom_analysis.py`）
+2. `render_custom_analysis()` 関数を実装
+3. `app.py` でインポートして呼び出す
+
+```python
+from tabs.custom_analysis import render_custom_analysis
+
+# タブに追加
+with tab5:
+    render_custom_analysis(df, config_data)
+```
+
+## **よくある質問 (FAQ)**
+
+### **Q: 圧力制御と流量制御を同時に実行できますか？**
+A: 現在の実装では、1つの実験で1つの制御モードのみサポートしています。ただし、複数ループでそれぞれ異なるノード/リンクを制御することは可能です。
+
+### **Q: 複数ループで異なる制御アルゴリズム（PIDとMPC）を混在できますか？**
+A: 現状では1つの実験で1つのコントローラーのみ使用可能です。将来的には、ループごとに異なるコントローラーを指定できるように拡張可能です。
+
+### **Q: 何個のループまで対応していますか？**
+A: 理論的には無制限ですが、以下の制約があります：
+- 計算時間がループ数に比例して増加
+- 可視化の見やすさ（10ループ程度が実用的）
+- メモリ使用量
+
+### **Q: 実際の配水ネットワークで使用できますか？**
+A: 可能ですが、以下を考慮してください：
+- EPANETモデルの精度
+- 実システムとの時間スケールの違い
+- 実際のセンサー・アクチュエータの応答特性
+- 現在は分散制御のため、ループ間干渉を考慮していない
+
+### **Q: リアルタイム制御に使用できますか？**
+A: 現在の実装はシミュレーション専用です。リアルタイム制御には以下の対応が必要：
+- 実センサー・アクチュエータとのインターフェース
+- タイミング保証（リアルタイムOS等）
+- フェイルセーフ機構
+- セキュリティ対策
+
+## **引用・参考文献**
+
+### **EPANET**
+- Rossman, L. A. (2000). EPANET 2: Users Manual. U.S. Environmental Protection Agency.
+
+### **PID制御**
+- Åström, K. J., & Hägglund, T. (2006). Advanced PID Control. ISA-The Instrumentation, Systems, and Automation Society.
+
+### **モデル予測制御 (MPC)**
+- Camacho, E. F., & Bordons, C. (2007). Model Predictive Control. Springer Science & Business Media.
+
+### **配水システム制御**
+- Brdys, M. A., & Ulanicki, B. (1994). Operational Control of Water Systems: Structures, Algorithms, and Applications. Prentice Hall.
+
+## **ライセンス**
+
+本プロジェクトはMITライセンスの下で公開されています。
+
+## **コントリビューション**
+
+プルリクエストを歓迎します！以下のガイドラインに従ってください：
+
+1. 機能追加・バグ修正の場合は、まずIssueを作成
+2. コードスタイルは既存のコードに準拠
+3. 新機能にはテストを追加
+4. READMEを適切に更新
+
+## **サポート**
+
+問題が発生した場合：
+
+1. まずこのREADMEのトラブルシューティングセクションを確認
+2. ログを確認: `podman logs [service-name]`
+3. GitHubのIssueで報告
+
+## **今後の拡張予定**
+
+- [ ] MIMO-MPC（集中制御）の実装
+- [ ] ループごとに異なるコントローラーの指定
+- [ ] 動的な目標値変更（需要パターン追従）
+- [ ] 機械学習ベースの制御アルゴリズム
+- [ ] リアルタイムデータ連携
+- [ ] クラウドデプロイメント対応
+- [ ] 自動パラメータチューニング
+- [ ] 複数ネットワークの同時シミュレーション
+
+## **変更履歴**
+
+### v2.0.0 (2025-11-23)
+- 流量制御モードの追加
+- 複数ループ（分散制御）の対応
+- 可視化サービスのモジュール分割
+- メトリクス計算の拡張（ループごと + 全体統合）
+- 3D可視化の強化（複数センサー・アクチュエータ対応）
+
+### v1.0.0 (初版)
+- 基本的な圧力制御（単一ループ）
+- PID/MPC コントローラ
+- 3D可視化
+- メトリクス自動計算
