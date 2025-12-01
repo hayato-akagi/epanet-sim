@@ -1,6 +1,50 @@
-version: '3'
-
 services:
+  # -------------------------------------------------------
+  # Redis (画像キャッシュ)
+  # -------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    networks:
+      - epanet-net
+    restart: always
+  # -------------------------------------------------------
+  # 画像生成サービス (Port 5003)
+  # -------------------------------------------------------
+  image-generator:
+    build: ./image-generator
+    container_name: image-generator
+    ports:
+      - "5003:5000"
+    volumes:
+      - ./shared:/shared
+    environment:
+      - REDIS_URL=redis://redis:6379
+    networks:
+      - epanet-net
+    depends_on:
+      - redis
+    restart: always
+  # -------------------------------------------------------
+  # データ収集サービス (Port 5004)
+  # -------------------------------------------------------
+  data-collector:
+    build: ./data-collector
+    container_name: data-collector
+    ports:
+      - "5004:5000"
+    volumes:
+      - ./shared:/shared
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - OUTPUT_DIR=/shared/training_data
+    networks:
+      - epanet-net
+    depends_on:
+      - redis
+    restart: always
   # -------------------------------------------------------
   # 制御ロジック 1: PID Controller (Port 5000)
   # -------------------------------------------------------
@@ -14,7 +58,6 @@ services:
     networks:
       - epanet-net
     restart: always
-
   # -------------------------------------------------------
   # 制御ロジック 2: MPC Controller (Port 5001)
   # -------------------------------------------------------
@@ -28,7 +71,36 @@ services:
     networks:
       - epanet-net
     restart: always
-
+  # -------------------------------------------------------
+  # 制御ロジック 3: VLA Controller (Port 5002)
+  # -------------------------------------------------------
+  controller-vla:
+    build: ./controller-vla
+    container_name: controller-vla
+    ports:
+      - "5002:5000"
+    volumes:
+      - ./shared:/shared
+    networks:
+      - epanet-net
+    environment:
+      # 実験ID（sim-runnerと同じディレクトリに保存）
+      - EXP_ID=${EXP_ID:-exp_001}
+      # 出力パス
+      - OUTPUT_PATH=/shared/results
+      # VLAモデルの選択: dummy/openvla/smolvla/tinyvla
+      - VLA_MODEL=${VLA_MODEL:-dummy}
+      # モデルチェックポイントのパス（オプション）
+      - VLA_CHECKPOINT=${VLA_CHECKPOINT}
+      # 依存サービスのURL
+      - REDIS_URL=redis://redis:6379
+      - IMAGE_GENERATOR_URL=http://image-generator:5000
+      - DATA_COLLECTOR_URL=http://data-collector:5000
+    depends_on:
+      - redis
+      - image-generator
+      - data-collector
+    restart: always
   # -------------------------------------------------------
   # シミュレーション実行エンジン
   # -------------------------------------------------------
@@ -43,9 +115,10 @@ services:
       - CONFIG_PATH=/shared/configs/${EXP_CONFIG_FILE:-exp_001.json}
       - EXP_ID=${EXP_ID:-exp_001}
       
-      # ここで接続先を切り替えます。
-      # デフォルトは PID (controller-pid:5000)
-      # MPCを使う場合は controller-mpc:5000 に変更
+      # ここで接続先を切り替えます
+      # controller-pid:5000 (PID)
+      # controller-mpc:5000 (MPC)
+      # controller-vla:5000 (VLA)
       - CONTROLLER_URL=http://${CONTROLLER_HOST:-controller-pid}:5000/control
       
       - NETWORK_DIR=/shared/networks
@@ -53,7 +126,10 @@ services:
     depends_on:
       - controller-pid
       - controller-mpc
-
+      - controller-vla
+  # -------------------------------------------------------
+  # メトリクス計算
+  # -------------------------------------------------------
   metrics-calculator:
     build: ./metrics
     container_name: metrics-calculator
@@ -64,7 +140,10 @@ services:
     networks:
       - epanet-net
     restart: always
-
+    
+  # -------------------------------------------------------
+  # 可視化ダッシュボード
+  # -------------------------------------------------------
   visualization:
     build: ./visualization
     container_name: visualization
@@ -78,7 +157,7 @@ services:
       - RESULTS_DIR=/shared/results
       - NETWORKS_DIR=/shared/networks
     restart: always
-
+    
 networks:
   epanet-net:
     driver: bridge

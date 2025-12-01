@@ -20,15 +20,15 @@
         "initial_setting": 0.5
       },
       "pid_params": {
-        "Kp": 0.02,
-        "Ki": 0.001,
-        "Kd": 0.05
+        "Kp": 0.01,
+        "Ki": 0.0001,
+        "Kd": 0.005
       }
     },
     {
       "loop_id": "loop_2",
       "target": {
-        "node_id": "5",
+        "node_id": "12",
         "target_pressure": 25.0
       },
       "actuator": {
@@ -36,9 +36,9 @@
         "initial_setting": 0.6
       },
       "pid_params": {
-        "Kp": 0.03,
-        "Ki": 0.002,
-        "Kd": 0.06
+        "Kp": 0.01,
+        "Ki": 0.0001,
+        "Kd": 0.005
       }
     }
   ]

@@ -16,6 +16,9 @@ class RemoteValveControlEnv:
         self.exp_dir = os.path.join(self.output_root, self.exp_id)
         os.makedirs(self.exp_dir, exist_ok=True)
         
+        # Controller type detection (will be set during initialization)
+        self.controller_type = None  # 'batch' (PID/MPC) or 'individual' (VLA)
+        
         with open(config_path, 'r') as f:
             self.config = json.load(f)
         
@@ -27,14 +30,9 @@ class RemoteValveControlEnv:
         self.network_path = os.path.join(network_dir, inp_file)
         
         self.sim_config = self.config['simulation']
-        
-        # 制御モードの読み込み (デフォルトは圧力制御)
         self.control_mode = self.config.get('control_mode', 'pressure')
-        
-        # 制御ループの配列を読み込み
         self.control_loops = self.config.get('control_loops', [])
         
-        # 後方互換性: 旧形式の場合は1つのループとして扱う
         if not self.control_loops:
             print("Using legacy single-loop configuration")
             self.control_loops = [{
@@ -59,19 +57,13 @@ class RemoteValveControlEnv:
             raise e
     
     def _to_float(self, value):
-        """
-        EPANETから返される値を安全にfloatに変換
-        - 0次元配列（スカラー）: np.ndarray.item() を使用
-        - 1次元配列: 最初の要素を取得
-        - その他: そのままfloatに変換
-        """
         if isinstance(value, np.ndarray):
-            if value.ndim == 0:  # 0次元配列（スカラー）
+            if value.ndim == 0:
                 return float(value.item())
-            else:  # 1次元以上の配列
+            else:
                 return float(value.flat[0])
         return float(value)
-
+    
     def wait_for_controller(self):
         print("Waiting for controller...")
         max_retries = 10
@@ -80,19 +72,31 @@ class RemoteValveControlEnv:
                 payload = {
                     "init": True,
                     "control_mode": self.control_mode,
-                    "control_loops": self.control_loops  # 配列をそのまま送信
+                    "control_loops": self.control_loops
                 }
                 response = requests.post(self.controller_url, json=payload, timeout=5)
                 if response.status_code == 200:
                     resp_data = response.json()
                     print(f"Controller connected and initialized.")
                     print(f"  Initialized {resp_data.get('num_loops', len(self.control_loops))} control loops")
+                    
+                    # Detect controller type from response
+                    if 'controller_type' in resp_data:
+                        self.controller_type = resp_data['controller_type']
+                    elif 'status' in resp_data:
+                        # PID/MPC controllers return {"status": "initialized"}
+                        self.controller_type = 'batch'  # PID/MPC style
+                    else:
+                        # VLA controllers return {"num_loops": ...}
+                        self.controller_type = 'individual'  # VLA style
+                    
+                    print(f"  Detected controller type: {self.controller_type}")
                     return
             except requests.exceptions.ConnectionError:
                 print(f"Connection failed, retrying... ({i+1}/{max_retries})")
                 time.sleep(2)
         raise Exception("Could not connect to controller")
-
+    
     def run(self):
         self.wait_for_controller()
         
@@ -101,12 +105,51 @@ class RemoteValveControlEnv:
         self.epanet_api.setTimeSimulationDuration(duration)
         self.epanet_api.setTimeHydraulicStep(step_size)
         
-        # 各ループのノードとリンクのインデックスを取得
+        # === デバッグ: ネットワーク情報の表示 ===
+        print("\n=== Network Debug Info ===")
+        print(f"Total Nodes: {self.epanet_api.getNodeCount()}")
+        print(f"Total Links: {self.epanet_api.getLinkCount()}")
+        print(f"Node IDs: {self.epanet_api.getNodeNameID()}")
+        print(f"Link IDs: {self.epanet_api.getLinkNameID()}")
+        print("========================\n")
+        # ======================================
+        
         loop_data = []
         for loop in self.control_loops:
-            node_idx = self.epanet_api.getNodeIndex(loop['target']['node_id'])
-            link_idx = self.epanet_api.getLinkIndex(loop['actuator']['link_id'])
+            node_id = loop['target']['node_id']
+            link_id = loop['actuator']['link_id']
+            
+            # === デバッグ: インデックス取得 ===
+            print(f"\n=== Loop {loop['loop_id']} ===")
+            print(f"Requested Node ID: {node_id} (type: {type(node_id)})")
+            print(f"Requested Link ID: {link_id} (type: {type(link_id)})")
+            # =================================
+            
+            try:
+                node_idx = self.epanet_api.getNodeIndex(node_id)
+                print(f"Node Index: {node_idx} (type: {type(node_idx)})")
+            except Exception as e:
+                print(f"ERROR getting node index: {e}")
+                raise
+            
+            try:
+                link_idx = self.epanet_api.getLinkIndex(link_id)
+                print(f"Link Index: {link_idx} (type: {type(link_idx)})")
+            except Exception as e:
+                print(f"ERROR getting link index: {e}")
+                raise
+            
             current_valve = loop['actuator']['initial_setting']
+            
+            # === インデックスの妥当性チェック ===
+            if isinstance(node_idx, np.ndarray):
+                node_idx = int(node_idx.item())
+            if isinstance(link_idx, np.ndarray):
+                link_idx = int(link_idx.item())
+            
+            print(f"Final Node Index: {node_idx}")
+            print(f"Final Link Index: {link_idx}")
+            # ==================================
             
             self.epanet_api.setLinkSettings(link_idx, current_valve)
             
@@ -117,44 +160,56 @@ class RemoteValveControlEnv:
                 "current_valve": current_valve
             })
             
-            print(f"Loop {loop['loop_id']}: Node={loop['target']['node_id']}, Link={loop['actuator']['link_id']}")
-
-        print(f"Starting Simulation Loop for Experiment: {self.exp_id}...")
+            print(f"Loop {loop['loop_id']}: Node={node_id} (idx={node_idx}), Link={link_id} (idx={link_idx})")
+        
+        print(f"\nStarting Simulation Loop for Experiment: {self.exp_id}...")
+        print(f"  Duration: {duration}s")
+        print(f"  Hydraulic step: {step_size}s")
+        print(f"  Expected steps: {duration // step_size}")
         
         self.epanet_api.openHydraulicAnalysis()
         self.epanet_api.initializeHydraulicAnalysis()
         current_time = 0
+        step_count = 0
         
-        while current_time < duration:
+        # Fixed: Use <= instead of < to include the final step
+        while current_time <= duration:
             t = self.epanet_api.runHydraulicAnalysis()
             
-            # 各ループのセンサーデータを収集
             sensor_data = []
-            loop_measurements = []  # 結果保存用
+            loop_measurements = []
             
             for i, loop_info in enumerate(loop_data):
                 loop_config = self.control_loops[i]
                 
-                # EPANETから値を取得してfloatに変換
-                measured_pressure = self._to_float(self.epanet_api.getNodePressure(loop_info['node_idx']))
-                flow = self._to_float(self.epanet_api.getLinkFlows(loop_info['link_idx']))
+                try:
+                    measured_pressure = self._to_float(self.epanet_api.getNodePressure(loop_info['node_idx']))
+                except Exception as e:
+                    print(f"ERROR: getNodePressure failed for node_idx={loop_info['node_idx']}: {e}")
+                    raise
                 
-                # 制御モードに応じて制御対象値と目標値を選択
+                try:
+                    flow = self._to_float(self.epanet_api.getLinkFlows(loop_info['link_idx']))
+                except Exception as e:
+                    print(f"ERROR: getLinkFlows failed for link_idx={loop_info['link_idx']}: {e}")
+                    raise
+                
                 if self.control_mode == 'flow':
                     controlled_value = flow
                     target_value = loop_config['target'].get('target_flow', 100.0)
-                else:  # pressure
+                else:
                     controlled_value = measured_pressure
                     target_value = loop_config['target'].get('target_pressure', 30.0)
                 
                 sensor_data.append({
                     "loop_id": loop_info['loop_id'],
-                    "pressure": controlled_value,  # 制御対象値（名前はpressureだが実際は制御対象値）
+                    "pressure": controlled_value,
                     "target": target_value,
-                    "prev_action": loop_info['current_valve']
+                    "prev_action": loop_info['current_valve'],
+                    "step": step_count,
+                    "time_step": current_time
                 })
                 
-                # 結果保存用にデータを保持
                 loop_measurements.append({
                     "measured_pressure": measured_pressure,
                     "flow": flow,
@@ -162,64 +217,161 @@ class RemoteValveControlEnv:
                     "target_value": target_value
                 })
             
-            # コントローラに全ループ分のデータを送信
-            payload = {
-                "time_step": current_time,
-                "sensor_data": sensor_data  # 配列
-            }
-            
-            try:
-                response = requests.post(self.controller_url, json=payload, timeout=2)
-                response_data = response.json()
+            # Send requests based on controller type
+            if self.controller_type == 'batch':
+                # PID/MPC style: Send all loops in one request
+                payload = {
+                    "time_step": current_time,
+                    "sensor_data": sensor_data
+                }
                 
-                # 各ループのアクションを取得して適用
-                actions = response_data.get("actions", [])
-                
-                for i, action_data in enumerate(actions):
-                    if i >= len(loop_data):
-                        break
+                try:
+                    response = requests.post(self.controller_url, json=payload, timeout=5)
                     
-                    loop_info = loop_data[i]
+                    if response.status_code != 200:
+                        print(f"[WARNING] Controller returned status {response.status_code}")
+                        continue
+                    
+                    response_data = response.json()
+                    actions = response_data.get("actions", [])
+                    
+                    # Process actions
+                    for i, action_data in enumerate(actions):
+                        if i >= len(loop_data):
+                            break
+                        
+                        loop_info = loop_data[i]
+                        loop_config = self.control_loops[i]
+                        measurements = loop_measurements[i]
+                        
+                        new_valve = action_data.get("action", loop_info['current_valve'])
+                        
+                        # Clamp to valid range
+                        action_config = loop_config.get('actuator', {})
+                        min_valve = action_config.get('min_setting', 0.1)
+                        max_valve = action_config.get('max_setting', 1.0)
+                        
+                        if new_valve < min_valve:
+                            print(f"[WARNING] Loop {loop_info['loop_id']}: Valve {new_valve:.4f} too low, clamping to {min_valve}")
+                            new_valve = min_valve
+                        elif new_valve > max_valve:
+                            print(f"[WARNING] Loop {loop_info['loop_id']}: Valve {new_valve:.4f} too high, clamping to {max_valve}")
+                            new_valve = max_valve
+                        
+                        self.epanet_api.setLinkSettings(loop_info['link_idx'], new_valve)
+                        
+                        self.results.append({
+                            "Time": current_time,
+                            "Step": step_count,
+                            "LoopID": loop_info['loop_id'],
+                            "Pressure": measurements['measured_pressure'],
+                            "Flow": measurements['flow'],
+                            "ControlMode": self.control_mode,
+                            "ControlledValue": measurements['controlled_value'],
+                            "TargetValue": measurements['target_value'],
+                            "TargetPressure": loop_config['target'].get('target_pressure', 0),
+                            "TargetFlow": loop_config['target'].get('target_flow', 0),
+                            "ValveSetting": loop_info['current_valve'],
+                            "NewValveSetting": new_valve,
+                            "PID_P": action_data.get("p_term", 0),
+                            "PID_I": action_data.get("i_term", 0),
+                            "PID_D": action_data.get("d_term", 0),
+                            "Error": action_data.get("error", measurements['target_value'] - measurements['controlled_value'])
+                        })
+                        
+                        loop_info['current_valve'] = new_valve
+                    
+                except Exception as e:
+                    print(f"Error communicating with controller: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    
+            else:
+                # VLA style: Send individual requests for each loop
+                for i, loop_info in enumerate(loop_data):
                     loop_config = self.control_loops[i]
                     measurements = loop_measurements[i]
+                    sensor = sensor_data[i]
                     
-                    new_valve = action_data.get("action", loop_info['current_valve'])
-                    self.epanet_api.setLinkSettings(loop_info['link_idx'], new_valve)
+                    payload = {
+                        "loop_id": loop_info['loop_id'],
+                        "pressure": sensor['pressure'],
+                        "target": sensor['target'],
+                        "prev_action": sensor['prev_action'],
+                        "step": step_count,
+                        "time_step": current_time
+                    }
                     
-                    # 結果保存
-                    self.results.append({
-                        "Time": current_time,
-                        "LoopID": loop_info['loop_id'],
-                        "Pressure": measurements['measured_pressure'],
-                        "Flow": measurements['flow'],
-                        "ControlMode": self.control_mode,
-                        "ControlledValue": measurements['controlled_value'],
-                        "TargetValue": measurements['target_value'],
-                        "TargetPressure": loop_config['target'].get('target_pressure', 0),
-                        "TargetFlow": loop_config['target'].get('target_flow', 0),
-                        "ValveSetting": loop_info['current_valve'],
-                        "NewValveSetting": new_valve,
-                        "PID_P": action_data.get("p_term", 0),
-                        "PID_I": action_data.get("i_term", 0),
-                        "PID_D": action_data.get("d_term", 0),
-                        "Error": action_data.get("error", 0)
-                    })
-                    
-                    loop_info['current_valve'] = new_valve
-                    
-            except Exception as e:
-                print(f"Error communicating with controller: {e}")
+                    try:
+                        response = requests.post(self.controller_url, json=payload, timeout=5)
+                        
+                        if response.status_code != 200:
+                            print(f"[WARNING] Controller returned status {response.status_code}")
+                            continue
+                        
+                        response_data = response.json()
+                        
+                        # Handle VLA-style response (delta_action)
+                        if "delta_action" in response_data:
+                            delta_action = response_data.get("delta_action", 0.0)
+                            new_valve = loop_info['current_valve'] + delta_action
+                            
+                            # Clamp to valid range
+                            action_config = loop_config.get('vla_params', {}).get('action', {})
+                            min_valve = action_config.get('absolute_range', [0.0, 2.0])[0]
+                            max_valve = action_config.get('absolute_range', [0.0, 2.0])[1]
+                            
+                            if new_valve < min_valve:
+                                print(f"[WARNING] Loop {loop_info['loop_id']}: Valve {new_valve:.4f} too low, clamping to {min_valve}")
+                                new_valve = min_valve
+                            elif new_valve > max_valve:
+                                print(f"[WARNING] Loop {loop_info['loop_id']}: Valve {new_valve:.4f} too high, clamping to {max_valve}")
+                                new_valve = max_valve
+                            
+                            self.epanet_api.setLinkSettings(loop_info['link_idx'], new_valve)
+                            
+                            self.results.append({
+                                "Time": current_time,
+                                "Step": step_count,
+                                "LoopID": loop_info['loop_id'],
+                                "Pressure": measurements['measured_pressure'],
+                                "Flow": measurements['flow'],
+                                "ControlMode": self.control_mode,
+                                "ControlledValue": measurements['controlled_value'],
+                                "TargetValue": measurements['target_value'],
+                                "TargetPressure": loop_config['target'].get('target_pressure', 0),
+                                "TargetFlow": loop_config['target'].get('target_flow', 0),
+                                "ValveSetting": loop_info['current_valve'],
+                                "DeltaAction": delta_action,
+                                "NewValveSetting": new_valve,
+                                "Error": measurements['target_value'] - measurements['controlled_value']
+                            })
+                            
+                            loop_info['current_valve'] = new_valve
+                            
+                        else:
+                            print(f"[WARNING] Unexpected response format from controller: {response_data.keys()}")
+                            
+                    except Exception as e:
+                        print(f"Error communicating with controller: {e}")
+                        import traceback
+                        traceback.print_exc()
             
             step_advanced = self.epanet_api.nextHydraulicAnalysisStep()
             current_time += step_size
+            step_count += 1
+            
+            if step_count % 10 == 0:
+                print(f"  Step {step_count}/{duration // step_size} completed (t={current_time}s)")
             
             if step_advanced == 0:
+                print(f"[INFO] EPANET simulation completed at step {step_count}")
                 break
-
+        
         self.epanet_api.closeHydraulicAnalysis()
         self.save_results()
         print(f"Simulation {self.exp_id} Completed.")
-
+    
     def save_results(self):
         filename = f"result.csv"
         output_path = os.path.join(self.exp_dir, filename)
@@ -228,8 +380,13 @@ class RemoteValveControlEnv:
         df.to_csv(output_path, index=False)
         print(f"Results saved to {output_path}")
         print(f"  Total records: {len(df)}")
-        print(f"  Loops: {df['LoopID'].nunique()}")
-
+        
+        if len(df) > 0:
+            print(f"  Loops: {df['LoopID'].nunique()}")
+            print(f"  Time range: {df['Time'].min():.0f}s - {df['Time'].max():.0f}s")
+            print(f"  Steps: {df['Step'].nunique()}")
+        else:
+            print("[WARNING] No data recorded!")
 
 if __name__ == "__main__":
     config_path = os.environ.get('CONFIG_PATH', '/shared/configs/exp_001.json')
