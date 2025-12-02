@@ -43,7 +43,7 @@ def initialize_controllers(loops, mode='pressure'):
         )
         
         # 出力制限（バルブ開度は 0.0 ～ 1.0 の範囲）
-        pid.output_limits = (0.0, 1.0)
+        pid.output_limits = (0.1, 1.0)
         
         pid_controllers[loop_id] = pid
         

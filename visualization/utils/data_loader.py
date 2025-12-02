@@ -43,3 +43,33 @@ def load_experiment_data(exp_path, control_mode):
         loop_ids = ['default']
     
     return df, has_multiple_loops, loop_ids
+
+def load_training_logs(exp_path):
+    """
+    学習ログを読み込む
+    
+    Returns:
+        tuple: (steps_df, episodes_df, has_training_logs)
+    """
+    steps_csv = os.path.join(exp_path, "training_steps.csv")
+    episodes_csv = os.path.join(exp_path, "training_episodes.csv")
+    
+    steps_df = None
+    episodes_df = None
+    has_training_logs = False
+    
+    if os.path.exists(steps_csv):
+        try:
+            steps_df = pd.read_csv(steps_csv)
+            has_training_logs = True
+        except Exception as e:
+            st.warning(f"Failed to load training_steps.csv: {e}")
+    
+    if os.path.exists(episodes_csv):
+        try:
+            episodes_df = pd.read_csv(episodes_csv)
+            has_training_logs = True
+        except Exception as e:
+            st.warning(f"Failed to load training_episodes.csv: {e}")
+    
+    return steps_df, episodes_df, has_training_logs

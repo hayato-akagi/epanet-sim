@@ -1,32 +1,52 @@
 {
-    "simulation": {
-        "duration": 86400,
-        "hydraulic_step": 300,
-        "report_step": 300
-    },
-    "network": {
-        "inp_file": "Net1.inp"
-    },
-    "target": {
-        "node_id": "11",
-        "target_pressure": 30.0
-    },
-    "actuator": {
+  "control_mode": "pressure",
+  "network": {
+    "inp_file": "Net1.inp"
+  },
+  "simulation": {
+    "duration": 86400,
+    "hydraulic_step": 3600
+  },
+  "control_loops": [
+    {
+      "loop_id": "loop_1",
+      "target": {
+        "node_id": "2",
+        "target_pressure": 30.0,
+        "target_flow": 100.0
+      },
+      "actuator": {
         "link_id": "10",
-        "initial_setting": 1.0
-    },
-    "pid_params": {
-        "kp": 0.0,
-        "ki": 0.0,
-        "kd": 0.0,
-        "setpoint": 30.0
-    },
-    "mpc_params": {
+        "initial_setting": 0.5
+      },
+      "mpc_params": {
         "horizon": 10,
-        "dt": 300,
-        "tau": 1800.0,
-        "K": 50.0,
+        "dt": 3600,
+        "tau": 7200.0,
+        "K": 8.0,
         "weight_error": 1.0,
-        "weight_du": 10.0
+        "weight_du": 0.3
+      }
+    },
+    {
+      "loop_id": "loop_2",
+      "target": {
+        "node_id": "12",
+        "target_pressure": 25.0,
+        "target_flow": 100.0
+      },
+      "actuator": {
+        "link_id": "12",
+        "initial_setting": 0.6
+      },
+      "mpc_params": {
+        "horizon": 10,
+        "dt": 3600,
+        "tau": 7200.0,
+        "K": 8.0,
+        "weight_error": 1.0,
+        "weight_du": 0.3
+      }
     }
+  ]
 }
