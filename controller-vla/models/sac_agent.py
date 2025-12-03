@@ -4,13 +4,12 @@ import torch.optim as optim
 import numpy as np
 from models.simple_dnn_vla import SimpleDNNVLA
 
-
 class SACAgent:
     """
-    Soft Actor-Critic Agent (簡易版)
+    Soft Actor-Critic Agent (改善版)
     
     SimpleDNNVLAをベースにSACを実装
-    将来的にはOpenVLAに置き換え可能
+    Actor更新を追加し、オンライン強化学習で高精度化
     """
     
     def __init__(self, config):
@@ -62,7 +61,10 @@ class SACAgent:
         self.last_critic_loss = 0.0
         self.update_count = 0
         
-        print("SAC Agent initialized (simplified version)")
+        print("SAC Agent initialized (with Actor update enabled)")
+        print(f"  Learning rate (actor): {training_config.get('learning_rate_actor', 3e-4)}")
+        print(f"  Learning rate (critic): {training_config.get('learning_rate_critic', 3e-4)}")
+        print(f"  Gamma: {self.gamma}, Tau: {self.tau}")
     
     def _build_critic(self):
         """Critic networkの構築（簡易版）"""
@@ -108,14 +110,18 @@ class SACAgent:
     
     def update(self, batch):
         """
-        SACの学習更新（簡易版）
-        
-        現在は最小限の実装。
-        本格的なSACにする場合は、画像特徴の抽出と
-        Criticへの入力を拡張する必要がある。
+        SACの学習更新（改善版 - Actor更新を実装）
         
         Args:
             batch: Replay bufferからのバッチ
+                - obs: 観測（images + prompt）
+                - action: 行動
+                - reward: 報酬
+                - next_obs: 次観測
+                - done: 終了フラグ
+        
+        Returns:
+            dict: 損失の辞書 {'critic_loss': float, 'actor_loss': float}
         """
         # バッチから数値状態を抽出（簡易版）
         states = []
@@ -124,10 +130,18 @@ class SACAgent:
         next_states = []
         dones = batch['done']
         
+        # 観測データを保持（Actor更新用）
+        obs_images_list = []
+        obs_prompts_list = []
+        
         for obs in batch['obs']:
             # プロンプトから数値を抽出（簡易版）
             state = self._extract_state_from_prompt(obs['prompt'])
             states.append(state)
+            
+            # Actor更新用に画像とプロンプトを保持
+            obs_images_list.append(obs['images'])
+            obs_prompts_list.append(obs['prompt'])
         
         for obs in batch['next_obs']:
             next_state = self._extract_state_from_prompt(obs['prompt'])
@@ -141,9 +155,12 @@ class SACAgent:
         next_states = torch.FloatTensor(next_states)
         dones = torch.FloatTensor(dones).unsqueeze(1)
         
-        # Critic更新（簡易版）
+        # ========================================
+        # Phase 1: Critic更新
+        # ========================================
+        
         with torch.no_grad():
-            # 次状態での行動（ランダムサンプリング）
+            # 次状態での行動（ランダムサンプリング - 簡易版）
             next_actions = torch.randn_like(actions) * 0.01
             next_actions = torch.clamp(next_actions, -0.05, 0.05)
             
@@ -173,21 +190,65 @@ class SACAgent:
         critic_2_loss.backward()
         self.critic_2_optimizer.step()
         
-        # Actorの更新（簡易版：スキップ）
-        # 本格実装では、Actorから行動をサンプリングして
-        # Criticで評価し、Q値を最大化するように更新
+        # ========================================
+        # Phase 2: Actor更新（重要！ここが追加部分）
+        # ========================================
         
-        # Target networksのソフトアップデート
+        # Actorから新しい行動を生成
+        new_actions_list = []
+        for i in range(len(obs_images_list)):
+            images = obs_images_list[i]
+            prompt = obs_prompts_list[i]
+            
+            # Actorで行動を生成（勾配を保持）
+            action = self.actor(images, prompt)
+            new_actions_list.append(action)
+        
+        new_actions = torch.FloatTensor(new_actions_list).unsqueeze(1)
+        
+        # Criticで新しい行動を評価
+        new_state_actions = torch.cat([states, new_actions], dim=1)
+        q1_new = self.critic_1(new_state_actions)
+        q2_new = self.critic_2(new_state_actions)
+        q_new = torch.min(q1_new, q2_new)
+        
+        # Actor損失: Q値を最大化（= -Q値を最小化）
+        actor_loss = -q_new.mean()
+        
+        # Actorの更新
+        self.actor_optimizer.zero_grad()
+        actor_loss.backward()
+        
+        # 勾配クリッピング（安定性のため）
+        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), max_norm=1.0)
+        
+        self.actor_optimizer.step()
+        
+        # ========================================
+        # Phase 3: Target networksのソフトアップデート
+        # ========================================
+        
         self._soft_update(self.critic_1, self.critic_1_target)
         self._soft_update(self.critic_2, self.critic_2_target)
         
+        # 統計の更新
         self.last_critic_loss = (critic_1_loss.item() + critic_2_loss.item()) / 2
-        self.last_actor_loss = 0.0  # 簡易版ではActor更新なし
+        self.last_actor_loss = actor_loss.item()  # 実際の値を記録
         self.update_count += 1
+        
+        # ログ出力（デバッグ用）
+        if self.update_count % 10 == 0:
+            print(f"[SAC Update #{self.update_count}]")
+            print(f"  Critic Loss: {self.last_critic_loss:.4f}")
+            print(f"  Actor Loss: {self.last_actor_loss:.4f}")
+            print(f"  Mean Q-value: {q_new.mean().item():.4f}")
+            print(f"  Mean Reward: {rewards.mean().item():.4f}")
         
         return {
             'critic_loss': self.last_critic_loss,
-            'actor_loss': self.last_actor_loss
+            'actor_loss': self.last_actor_loss,
+            'mean_q_value': q_new.mean().item(),
+            'mean_reward': rewards.mean().item()
         }
     
     def _extract_state_from_prompt(self, prompt):
@@ -237,7 +298,7 @@ class SACAgent:
             'critic_2_optimizer': self.critic_2_optimizer.state_dict(),
             'update_count': self.update_count
         }, path)
-        print(f"SAC model saved to {path}")
+        print(f"SAC model saved to {path} (update_count={self.update_count})")
     
     def load(self, path):
         """モデルの読み込み"""
@@ -251,4 +312,4 @@ class SACAgent:
         self.critic_1_optimizer.load_state_dict(checkpoint['critic_1_optimizer'])
         self.critic_2_optimizer.load_state_dict(checkpoint['critic_2_optimizer'])
         self.update_count = checkpoint['update_count']
-        print(f"SAC model loaded from {path}")
+        print(f"SAC model loaded from {path} (update_count={self.update_count})")

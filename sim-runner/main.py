@@ -78,19 +78,32 @@ class RemoteValveControlEnv:
                 if response.status_code == 200:
                     resp_data = response.json()
                     print(f"Controller connected and initialized.")
+                    print(f"  Response keys: {list(resp_data.keys())}")
                     print(f"  Initialized {resp_data.get('num_loops', len(self.control_loops))} control loops")
                     
-                    # Detect controller type from response
+                    # ★ FIXED: Improved controller type detection
+                    # Check for explicit controller_type field first
                     if 'controller_type' in resp_data:
                         self.controller_type = resp_data['controller_type']
-                    elif 'status' in resp_data:
-                        # PID/MPC controllers return {"status": "initialized"}
-                        self.controller_type = 'batch'  # PID/MPC style
-                    else:
-                        # VLA controllers return {"num_loops": ...}
+                        print(f"  Detected controller type (explicit): {self.controller_type}")
+                    # Check for VLA-specific fields (episode, loop_ids)
+                    elif 'episode' in resp_data or 'loop_ids' in resp_data:
                         self.controller_type = 'individual'  # VLA style
+                        print(f"  Detected controller type (VLA indicators): {self.controller_type}")
+                    # Check for batch controller response format
+                    elif 'status' in resp_data and resp_data.get('status') == 'initialized':
+                        # Additional check: if controller URL contains 'vla', it's VLA
+                        if 'vla' in self.controller_url.lower():
+                            self.controller_type = 'individual'
+                            print(f"  Detected controller type (URL contains 'vla'): {self.controller_type}")
+                        else:
+                            self.controller_type = 'batch'  # PID/MPC style
+                            print(f"  Detected controller type (batch style): {self.controller_type}")
+                    else:
+                        # Default: assume individual (VLA)
+                        self.controller_type = 'individual'
+                        print(f"  Detected controller type (default): {self.controller_type}")
                     
-                    print(f"  Detected controller type: {self.controller_type}")
                     return
             except requests.exceptions.ConnectionError:
                 print(f"Connection failed, retrying... ({i+1}/{max_retries})")
@@ -166,6 +179,7 @@ class RemoteValveControlEnv:
         print(f"  Duration: {duration}s")
         print(f"  Hydraulic step: {step_size}s")
         print(f"  Expected steps: {duration // step_size}")
+        print(f"  Controller type: {self.controller_type}")
         
         self.epanet_api.openHydraulicAnalysis()
         self.epanet_api.initializeHydraulicAnalysis()
@@ -294,13 +308,12 @@ class RemoteValveControlEnv:
                     sensor = sensor_data[i]
                     
                     payload = {
-                        "loop_id": loop_info['loop_id'],
-                        "pressure": sensor['pressure'],
-                        "target": sensor['target'],
-                        "prev_action": sensor['prev_action'],
-                        "step": step_count,
-                        "time_step": current_time
+                        "time_step": current_time,
+                        "sensor_data": [sensor]  # ★ FIXED: Wrap in array to match controller-vla expectation
                     }
+                    
+                    if step_count == 0:
+                        print(f"\n[DEBUG] VLA payload for loop {loop_info['loop_id']}: {payload}")
                     
                     try:
                         response = requests.post(self.controller_url, json=payload, timeout=5)
@@ -310,6 +323,9 @@ class RemoteValveControlEnv:
                             continue
                         
                         response_data = response.json()
+                        
+                        if step_count == 0:
+                            print(f"[DEBUG] VLA response: {response_data}")
                         
                         # Handle VLA-style response (delta_action)
                         if "delta_action" in response_data:
@@ -322,14 +338,17 @@ class RemoteValveControlEnv:
                             max_valve = action_config.get('absolute_range', [0.0, 2.0])[1]
                             
                             if new_valve < min_valve:
-                                print(f"[WARNING] Loop {loop_info['loop_id']}: Valve {new_valve:.4f} too low, clamping to {min_valve}")
+                                if step_count % 10 == 0:
+                                    print(f"[WARNING] Loop {loop_info['loop_id']}: Valve {new_valve:.4f} too low, clamping to {min_valve}")
                                 new_valve = min_valve
                             elif new_valve > max_valve:
-                                print(f"[WARNING] Loop {loop_info['loop_id']}: Valve {new_valve:.4f} too high, clamping to {max_valve}")
+                                if step_count % 10 == 0:
+                                    print(f"[WARNING] Loop {loop_info['loop_id']}: Valve {new_valve:.4f} too high, clamping to {max_valve}")
                                 new_valve = max_valve
                             
                             self.epanet_api.setLinkSettings(loop_info['link_idx'], new_valve)
                             
+                            # ★ FIXED: Record data
                             self.results.append({
                                 "Time": current_time,
                                 "Step": step_count,
@@ -349,11 +368,14 @@ class RemoteValveControlEnv:
                             
                             loop_info['current_valve'] = new_valve
                             
+                            if step_count == 0:
+                                print(f"[DEBUG] Recorded data for step {step_count}, loop {loop_info['loop_id']}")
+                            
                         else:
                             print(f"[WARNING] Unexpected response format from controller: {response_data.keys()}")
                             
                     except Exception as e:
-                        print(f"Error communicating with controller: {e}")
+                        print(f"Error communicating with controller at step {step_count}: {e}")
                         import traceback
                         traceback.print_exc()
             
@@ -362,13 +384,19 @@ class RemoteValveControlEnv:
             step_count += 1
             
             if step_count % 10 == 0:
-                print(f"  Step {step_count}/{duration // step_size} completed (t={current_time}s)")
+                print(f"  Step {step_count}/{duration // step_size} completed (t={current_time}s, recorded={len(self.results)})")
             
             if step_advanced == 0:
                 print(f"[INFO] EPANET simulation completed at step {step_count}")
                 break
         
         self.epanet_api.closeHydraulicAnalysis()
+        
+        print(f"\n[DEBUG] Total results before save: {len(self.results)}")
+        if len(self.results) > 0:
+            print(f"[DEBUG] First result: {self.results[0]}")
+            print(f"[DEBUG] Last result: {self.results[-1]}")
+        
         self.save_results()
         print(f"Simulation {self.exp_id} Completed.")
     
