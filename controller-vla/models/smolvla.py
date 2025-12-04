@@ -122,6 +122,20 @@ class SmoLVLA(nn.Module):
     
     def __init__(self):
         super().__init__()
+class TinyVLA(nn.Module):
+    """
+    TinyVLA - SimpleDNNVLAの改良版
+    
+    Improvements:
+    - ResNet-style blocks (残差接続)
+    - Attention mechanism (画像間の関係性を学習)
+    - Better normalization (BatchNorm)
+    - Deeper network (より表現力が高い)
+    """
+    
+    def __init__(self):
+        super().__init__()
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         # Vision encoder
         self.vision_encoder = EfficientImageEncoder()

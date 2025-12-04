@@ -98,6 +98,14 @@ services:
       # 依存サービスのURL
       - IMAGE_GENERATOR_URL=http://image-generator:5000
       - DATA_COLLECTOR_URL=http://data-collector:5000
+      # - CUDA_VISIBLE_DEVICES=0  # GPU 0を使用（オプション）
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
     depends_on:
       - redis
       - image-generator

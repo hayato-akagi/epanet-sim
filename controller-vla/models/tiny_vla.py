@@ -43,6 +43,7 @@ class TinyVLA(nn.Module):
     
     def __init__(self):
         super().__init__()
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
         # 画像エンコーダ（ResNet-style）
         self.image_encoder = nn.Sequential(
