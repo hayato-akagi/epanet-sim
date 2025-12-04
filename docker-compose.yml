@@ -22,6 +22,9 @@ services:
       - ./shared:/shared
     environment:
       - REDIS_URL=redis://redis:6379
+      - ENABLED_GENERATORS=${ENABLED_GENERATORS}
+      - IMAGE_WIDTH=${IMAGE_WIDTH:-256}
+      - IMAGE_HEIGHT=${IMAGE_HEIGHT:-256}
     networks:
       - epanet-net
     depends_on:
@@ -93,7 +96,6 @@ services:
       # モデルチェックポイントのパス（オプション）
       - VLA_CHECKPOINT=${VLA_CHECKPOINT}
       # 依存サービスのURL
-      - REDIS_URL=redis://redis:6379
       - IMAGE_GENERATOR_URL=http://image-generator:5000
       - DATA_COLLECTOR_URL=http://data-collector:5000
     depends_on:
@@ -114,6 +116,8 @@ services:
     environment:
       - CONFIG_PATH=/shared/configs/${EXP_CONFIG_FILE:-exp_001.json}
       - EXP_ID=${EXP_ID:-exp_001}
+      - SAVE_IMAGES=${SAVE_IMAGES:-true}
+      - IMAGE_SAVE_INTERVAL=${IMAGE_SAVE_INTERVAL:-10}
       
       # ここで接続先を切り替えます
       # controller-pid:5000 (PID)
@@ -123,6 +127,7 @@ services:
       
       - NETWORK_DIR=/shared/networks
       - OUTPUT_PATH=/shared/results
+      - REDIS_URL=redis://redis:6379
     depends_on:
       - controller-pid
       - controller-mpc

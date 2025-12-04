@@ -1,6 +1,7 @@
 """
 VLA Controller with automatic episode statistics calculation
 DEBUG VERSION with extensive logging
+FIXED: compute_action() now accepts exp_id parameter
 """
 import os
 import time
@@ -39,7 +40,7 @@ class VLAController:
         self.image_fetcher = image_fetcher
         self.prompt_generator = prompt_generator
         self.data_logger = data_logger
-        self.exp_id = exp_id
+        self.exp_id = exp_id  # ★ STORE exp_id
         self.exp_result_dir = exp_result_dir
         self.config = config
         
@@ -79,6 +80,7 @@ class VLAController:
         self.last_q_value = 0.0
         
         print(f"[VLAController] Initialized: {loop_id}")
+        print(f"  Experiment ID: {self.exp_id}")  # ★ CONFIRM
         print(f"  Model: {config.get('model_type', 'unknown')}")
         print(f"  Learning Mode: {config.get('learning_mode', 'online')}")
         print(f"  Max steps per episode: {self.max_steps_per_episode}")
@@ -93,7 +95,7 @@ class VLAController:
         print(f"[DEBUG] _calculate_max_steps() = {max_steps}")
         return max_steps
     
-    def compute_action(self, sensor_data, step, time_step):
+    def compute_action(self, sensor_data, step, time_step, exp_id=None):
         """
         Compute control action using VLA model
         
@@ -101,16 +103,24 @@ class VLAController:
             sensor_data: Dictionary containing sensor readings
             step: Current step number
             time_step: Current simulation time
+            exp_id: Experiment ID (optional, uses self.exp_id if not provided)
             
         Returns:
             delta_action: Action to take (delta valve setting)
         """
-        print(f"[DEBUG] compute_action called: step={step}, time_step={time_step}")
+        print(f"[DEBUG] compute_action called: step={step}, time_step={time_step}, exp_id={exp_id}")
         print(f"[DEBUG]   sensor_data keys: {sensor_data.keys()}")
         
+        # ★ Use provided exp_id or fall back to self.exp_id
+        if exp_id is None:
+            exp_id = self.exp_id
+            print(f"[DEBUG]   Using self.exp_id: {exp_id}")
+        else:
+            print(f"[DEBUG]   Using provided exp_id: {exp_id}")
+        
         # Fetch images
-        print(f"[DEBUG] Fetching images...")
-        images = self.image_fetcher.fetch(self.exp_id, step, sensor_data)
+        print(f"[DEBUG] Fetching images for exp_id={exp_id}, step={step}...")
+        images = self.image_fetcher.fetch(exp_id, step, sensor_data)
         print(f"[DEBUG]   Got {len(images)} images: {list(images.keys())}")
         
         # Generate prompt

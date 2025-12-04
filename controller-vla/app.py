@@ -4,6 +4,7 @@ Modified to support:
 1. Initialization requests from sim-runner
 2. Automatic episode tracking
 3. Multi-episode execution
+4. Image fetching from Redis via exp_id and step
 """
 import os
 import sys
@@ -32,6 +33,7 @@ training_dir = os.path.join(os.getcwd(), 'training')
 print(f"  training dir exists: {os.path.exists(training_dir)}")
 print(f"  training/__init__.py exists: {os.path.exists(os.path.join(training_dir, '__init__.py'))}")
 print(f"  training/controller.py exists: {os.path.exists(os.path.join(training_dir, 'controller.py'))}")
+
 if os.path.exists(training_dir):
     print(f"  training/ contents: {os.listdir(training_dir)}")
 
@@ -40,6 +42,7 @@ models_dir = os.path.join(os.getcwd(), 'models')
 utils_dir = os.path.join(os.getcwd(), 'utils')
 print(f"  models dir exists: {os.path.exists(models_dir)}")
 print(f"  utils dir exists: {os.path.exists(utils_dir)}")
+
 if os.path.exists(models_dir):
     print(f"  models/ contents: {os.listdir(models_dir)}")
 if os.path.exists(utils_dir):
@@ -172,7 +175,7 @@ def control():
     
     Supports two modes:
     1. Initialization: {"init": true, "control_loops": [...], "control_mode": "..."}
-    2. Control step: {"loop_id": "...", "pressure": ..., "target": ..., ...}
+    2. Control step: {"exp_id": "...", "step": ..., "sensor_data": [...]}
     """
     global vla_controllers, current_episode
     
@@ -286,6 +289,10 @@ def control():
     # Mode 2: Control Step Request
     # ========================================
     else:
+        # ★ NEW: Extract exp_id and step from request
+        exp_id = data.get('exp_id', EXP_ID)
+        step = data.get('step', 0)
+        
         # ★ CRITICAL FIX: sensor_data配列を展開
         # sim-runnerは sensor_data: [{...}] の形式で送ってくる
         if 'sensor_data' in data and isinstance(data['sensor_data'], list) and len(data['sensor_data']) > 0:
@@ -299,15 +306,13 @@ def control():
             }
             
             # DEBUG: 最初のリクエストでデータ構造を表示
-            step = actual_data.get('step', 0)
             if step == 0 or step == 1:
                 print(f"\n[DEBUG] Original request keys: {list(data.keys())}")
                 print(f"[DEBUG] Extracted data keys: {list(actual_data.keys())}")
-                print(f"[DEBUG] Extracted data: {actual_data}")
+                print(f"[DEBUG] exp_id={exp_id}, step={step}")
         else:
             # sensor_data配列がない場合（旧形式）
             actual_data = data
-            step = actual_data.get('step', 0)
             if step == 0 or step == 1:
                 print(f"\n[DEBUG] Using legacy format (no sensor_data array)")
                 print(f"[DEBUG] Request keys: {list(data.keys())}")
@@ -382,22 +387,23 @@ def control():
             'flow': actual_data.get('flow', 0.0)
         }
         
-        step = actual_data.get('step', 0)
         time_step = actual_data.get('time_step', 0)
         
         # Log first and every 50th step
         if step == 0:
             print(f"\n🎮 Starting control loop for {loop_id} (Episode {current_episode})...")
+            print(f"   exp_id={exp_id}, step={step}")
             print(f"   Sensor data keys: {list(sensor_data.keys())}")
             print(f"   Pressure: {sensor_data['pressure']:.2f}, Target: {sensor_data['target']:.2f}")
         elif step % 50 == 0:
             print(f"   Step {step}... (loop_id={loop_id}, pressure={sensor_data['pressure']:.2f})")
         
-        # Compute action
+        # ★ NEW: Compute action with exp_id and step for image fetching
         delta_action = controller.compute_action(
             sensor_data=sensor_data,
             step=step,
-            time_step=time_step
+            time_step=time_step,
+            exp_id=exp_id  # ★ Pass exp_id for ImageFetcher
         )
         
         return jsonify({
