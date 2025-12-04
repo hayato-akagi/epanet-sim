@@ -4,6 +4,12 @@
 
 set -e
 
+# Load .env file if exists
+if [ -f .env ]; then
+    echo "Loading .env file..."
+    export $(grep -v '^#' .env | xargs)
+fi
+
 NUM_EPISODES=${1:-10}
 EXP_ID=${EXP_ID:-simplednn_correct_001}
 

@@ -92,7 +92,6 @@ current_episode = 0  # グローバルエピソードカウンタ
 import time
 import redis
 import requests
-from models.simple_dnn_vla import SimpleDNNVLA
 from models.sac_agent import SACAgent
 from utils.image_fetcher import ImageFetcher
 from utils.prompt_generator import PromptGenerator
@@ -105,8 +104,21 @@ def initialize_controller(loop_id, loop_config):
     
     # Initialize VLA model
     if VLA_MODEL == 'simple_dnn':
-        vla_model = SimpleDNNVLA()
+        from models.simple_dnn_vla import SimpleDNNVLAWrapper
+        vla_model = SimpleDNNVLAWrapper()
         print("Initialized SimpleDNN VLA Model")
+    elif VLA_MODEL == 'tiny_vla':
+        from models.tiny_vla import TinyVLAWrapper
+        vla_model = TinyVLAWrapper()
+        print("Initialized TinyVLA Model")
+    elif VLA_MODEL == 'smolvla':
+        from models.smolvla import SmolVLAWrapper
+        vla_model = SmolVLAWrapper()
+        print("Initialized SmolVLA Model")
+    elif VLA_MODEL == 'openvla':
+        from models.openvla import OpenVLAWrapper
+        vla_model = OpenVLAWrapper()
+        print("Initialized OpenVLA Model")
     elif VLA_MODEL == 'dummy':
         from models.dummy_agent import DummyVLA
         vla_model = DummyVLA()
