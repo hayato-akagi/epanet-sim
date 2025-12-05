@@ -1,7 +1,7 @@
 {
-  "control_mode": "pressure",
+  "control_mode": "flow",
   "network": {
-    "inp_file": "Net1.inp"
+    "inp_file": "Net2.inp"
   },
   "simulation": {
     "duration": 86400,
@@ -11,13 +11,13 @@
     {
       "loop_id": "loop_1",
       "target": {
-        "node_id": "2",
-        "target_pressure": 30.0,
-        "target_flow": 100.0
+        "node_id": "11",
+        "target_pressure": 25.0,
+        "target_flow": 150.0
       },
       "actuator": {
-        "link_id": "10",
-        "initial_setting": 0.5
+        "link_id": "25",
+        "initial_setting": 0.6
       },
       "mpc_params": {
         "horizon": 10,
@@ -31,13 +31,13 @@
     {
       "loop_id": "loop_2",
       "target": {
-        "node_id": "12",
-        "target_pressure": 25.0,
-        "target_flow": 100.0
+        "node_id": "19",
+        "target_pressure": 28.0,
+        "target_flow": 120.0
       },
       "actuator": {
-        "link_id": "12",
-        "initial_setting": 0.6
+        "link_id": "30",
+        "initial_setting": 0.5
       },
       "mpc_params": {
         "horizon": 10,

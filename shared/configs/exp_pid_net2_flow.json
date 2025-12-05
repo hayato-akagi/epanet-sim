@@ -1,0 +1,46 @@
+{
+  "control_mode": "flow",
+  "network": {
+    "inp_file": "Net2.inp"
+  },
+  "simulation": {
+    "duration": 86400,
+    "hydraulic_step": 3600
+  },
+  "control_loops": [
+    {
+      "loop_id": "loop_1",
+      "target": {
+        "node_id": "11",
+        "target_pressure": 25.0,
+        "target_flow": 150.0
+      },
+      "actuator": {
+        "link_id": "25",
+        "initial_setting": 0.6
+      },
+      "pid_params": {
+        "Kp": 0.015,
+        "Ki": 0.00015,
+        "Kd": 0.008
+      }
+    },
+    {
+      "loop_id": "loop_2",
+      "target": {
+        "node_id": "19",
+        "target_pressure": 28.0,
+        "target_flow": 120.0
+      },
+      "actuator": {
+        "link_id": "30",
+        "initial_setting": 0.5
+      },
+      "pid_params": {
+        "Kp": 0.015,
+        "Ki": 0.00015,
+        "Kd": 0.008
+      }
+    }
+  ]
+}
