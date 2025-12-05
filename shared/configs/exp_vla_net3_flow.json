@@ -1,0 +1,235 @@
+{
+  "control_mode": "flow",
+  "network": {
+    "inp_file": "Net3.inp"
+  },
+  "simulation": {
+    "duration": 86400,
+    "hydraulic_step": 600
+  },
+  "control_loops": [
+    {
+      "loop_id": "loop_1",
+      "target": {
+        "node_id": "161",
+        "target_pressure": 30.0,
+        "target_flow": 200.0
+      },
+      "actuator": {
+        "link_id": "155",
+        "initial_setting": 0.5
+      },
+      "vla_params": {
+        "model_type": "simple_dnn",
+        "checkpoint_path": null,
+        "learning_mode": "online",
+        "algorithm": "sac",
+        "device": "cpu",
+        
+        "network": {
+          "hidden_dims": [256, 256],
+          "activation": "relu"
+        },
+        
+        "training": {
+          "buffer_size": 10000,
+          "batch_size": 32,
+          "learning_rate_actor": 0.0003,
+          "learning_rate_critic": 0.0003,
+          "learning_rate_alpha": 0.0003,
+          "gamma": 0.99,
+          "tau": 0.005,
+          "alpha": 0.2,
+          "learning_starts": 100,
+          "update_frequency": 1,
+          "gradient_steps": 1
+        },
+        
+        "exploration": {
+          "initial_random_steps": 50
+        },
+        
+        "observation": {
+          "use_images": true,
+          "image_types": ["system_ui", "valve_detail", "flow_dashboard", "comparison"],
+          "use_numerical": true
+        },
+        
+        "action": {
+          "type": "continuous",
+          "delta_range": [-0.1, 0.1],
+          "absolute_range": [0.0, 2.0],
+          "clip": true
+        },
+        
+        "reward": {
+          "tracking_weight": 1.0,
+          "stability_weight": 0.5,
+          "safety_weight": 10.0,
+          "normalize": true,
+          "clip_range": [-10, 10],
+          "safety_bounds": {
+            "pressure_min": 20.0,
+            "pressure_max": 40.0
+          }
+        },
+        
+        "checkpointing": {
+          "save_frequency": 50,
+          "save_dir": "/shared/checkpoints"
+        }
+      }
+    },
+    {
+      "loop_id": "loop_2",
+      "target": {
+        "node_id": "65",
+        "target_pressure": 28.0,
+        "target_flow": 150.0
+      },
+      "actuator": {
+        "link_id": "70",
+        "initial_setting": 0.5
+      },
+      "vla_params": {
+        "model_type": "simple_dnn",
+        "checkpoint_path": null,
+        "learning_mode": "online",
+        "algorithm": "sac",
+        "device": "cpu",
+        
+        "network": {
+          "hidden_dims": [256, 256],
+          "activation": "relu"
+        },
+        
+        "training": {
+          "buffer_size": 10000,
+          "batch_size": 32,
+          "learning_rate_actor": 0.0003,
+          "learning_rate_critic": 0.0003,
+          "learning_rate_alpha": 0.0003,
+          "gamma": 0.99,
+          "tau": 0.005,
+          "alpha": 0.2,
+          "learning_starts": 100,
+          "update_frequency": 1,
+          "gradient_steps": 1
+        },
+        
+        "exploration": {
+          "initial_random_steps": 50
+        },
+        
+        "observation": {
+          "use_images": true,
+          "image_types": ["system_ui", "valve_detail", "flow_dashboard", "comparison"],
+          "use_numerical": true
+        },
+        
+        "action": {
+          "type": "continuous",
+          "delta_range": [-0.1, 0.1],
+          "absolute_range": [0.0, 2.0],
+          "clip": true
+        },
+        
+        "reward": {
+          "tracking_weight": 1.0,
+          "stability_weight": 0.5,
+          "safety_weight": 10.0,
+          "normalize": true,
+          "clip_range": [-10, 10],
+          "safety_bounds": {
+            "pressure_min": 18.0,
+            "pressure_max": 38.0
+          }
+        },
+        
+        "checkpointing": {
+          "save_frequency": 50,
+          "save_dir": "/shared/checkpoints"
+        }
+      }
+    },
+    {
+      "loop_id": "loop_3",
+      "target": {
+        "node_id": "45",
+        "target_pressure": 32.0,
+        "target_flow": 100.0
+      },
+      "actuator": {
+        "link_id": "50",
+        "initial_setting": 0.5
+      },
+      "vla_params": {
+        "model_type": "simple_dnn",
+        "checkpoint_path": null,
+        "learning_mode": "online",
+        "algorithm": "sac",
+        "device": "cpu",
+        
+        "network": {
+          "hidden_dims": [256, 256],
+          "activation": "relu"
+        },
+        
+        "training": {
+          "buffer_size": 10000,
+          "batch_size": 32,
+          "learning_rate_actor": 0.0003,
+          "learning_rate_critic": 0.0003,
+          "learning_rate_alpha": 0.0003,
+          "gamma": 0.99,
+          "tau": 0.005,
+          "alpha": 0.2,
+          "learning_starts": 100,
+          "update_frequency": 1,
+          "gradient_steps": 1
+        },
+        
+        "exploration": {
+          "initial_random_steps": 50
+        },
+        
+        "observation": {
+          "use_images": true,
+          "image_types": ["system_ui", "valve_detail", "flow_dashboard", "comparison"],
+          "use_numerical": true
+        },
+        
+        "action": {
+          "type": "continuous",
+          "delta_range": [-0.1, 0.1],
+          "absolute_range": [0.0, 2.0],
+          "clip": true
+        },
+        
+        "reward": {
+          "tracking_weight": 1.0,
+          "stability_weight": 0.5,
+          "safety_weight": 10.0,
+          "normalize": true,
+          "clip_range": [-10, 10],
+          "safety_bounds": {
+            "pressure_min": 22.0,
+            "pressure_max": 42.0
+          }
+        },
+        
+        "checkpointing": {
+          "save_frequency": 50,
+          "save_dir": "/shared/checkpoints"
+        }
+      }
+    }
+  ],
+  
+  "experiment": {
+    "name": "net3_flow_control_vla",
+    "description": "VLA controlling Net3 to maintain junction 161 flow at 200.0 LPS, junction 65 at 150.0 LPS, and junction 45 at 100.0 LPS",
+    "max_episodes": 3,
+    "seed": 42
+  }
+}

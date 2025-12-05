@@ -11,13 +11,13 @@
     {
       "loop_id": "loop_1",
       "target": {
-        "node_id": "10",
-        "target_pressure": 120.0,
+        "node_id": "2",
+        "target_pressure": 30.0,
         "target_flow": 100.0
       },
       "actuator": {
-        "link_id": "9",
-        "initial_setting": 1.0
+        "link_id": "10",
+        "initial_setting": 0.5
       },
       "vla_params": {
         "model_type": "simple_dnn",
@@ -69,8 +69,8 @@
           "normalize": true,
           "clip_range": [-10, 10],
           "safety_bounds": {
-            "pressure_min": 100.0,
-            "pressure_max": 150.0
+            "pressure_min": 20.0,
+            "pressure_max": 40.0
           }
         },
         
@@ -83,8 +83,8 @@
   ],
   
   "experiment": {
-    "name": "net1_pump_control_simplednn",
-    "description": "SimpleDNN VLA controlling Pump 9 to maintain Junction 10 pressure at 120m",
+    "name": "net1_pressure_control_vla",
+    "description": "VLA controlling Net1 to maintain junction 2 pressure at 30.0m",
     "max_episodes": 3,
     "seed": 42
   }
