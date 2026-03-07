@@ -1,6 +1,6 @@
 #!/bin/bash
 # 複数エピソード実行スクリプト（改善版）
-# 各エピソード間でcontroller-vlaをリセット
+# 各エピソード間でcontroller_vlaをリセット
 
 set -e
 
@@ -23,9 +23,9 @@ echo "=== Initial Setup ==="
 echo "Starting all services..."
 docker-compose up -d redis image-generator data-collector metrics-calculator
 
-# 初回のcontroller-vla起動
-echo "Starting controller-vla..."
-docker-compose up -d controller-vla
+# 初回のcontroller_vla起動
+echo "Starting controller_vla..."
+docker-compose up -d controller_vla
 
 # サービスが起動するまで待機
 echo "Waiting for services to be ready..."
@@ -38,18 +38,18 @@ for i in $(seq 1 $NUM_EPISODES); do
     echo "=== Episode $i / $NUM_EPISODES ==="
     echo "=========================================="
     
-    # Episode 2以降はcontroller-vlaをリセット
+    # Episode 2以降はcontroller_vlaをリセット
     if [ $i -gt 1 ]; then
-        echo "Resetting controller-vla..."
-        docker-compose restart controller-vla
+        echo "Resetting controller_vla..."
+        docker-compose restart controller_vla
         sleep 5
     fi
     
-    # sim-runnerを実行（フォアグラウンド）
-    echo "Running sim-runner..."
-    docker-compose up sim-runner
+    # sim_runnerを実行（フォアグラウンド）
+    echo "Running sim_runner..."
+    docker-compose up sim_runner
     
-    # sim-runnerが終了したら次へ
+    # sim_runnerが終了したら次へ
     echo "Episode $i completed."
     
     # 短い待機（ログ書き込み完了を待つ）

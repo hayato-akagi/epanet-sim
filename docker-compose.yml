@@ -52,7 +52,7 @@ services:
   # 制御ロジック 1: PID Controller (Port 5000)
   # -------------------------------------------------------
   controller-pid:
-    build: ./controller-pid
+    build: ./controller_pid
     container_name: controller-pid
     ports:
       - "5000:5000"
@@ -65,7 +65,7 @@ services:
   # 制御ロジック 2: MPC Controller (Port 5001)
   # -------------------------------------------------------
   controller-mpc:
-    build: ./controller-mpc
+    build: ./controller_mpc
     container_name: controller-mpc
     ports:
       - "5001:5000"
@@ -77,9 +77,9 @@ services:
   # -------------------------------------------------------
   # 制御ロジック 3: VLA Controller (Port 5002)
   # -------------------------------------------------------
-  controller-vla:
-    build: ./controller-vla
-    container_name: controller-vla
+  controller_vla:
+    build: ./controller_vla
+    container_name: controller_vla
     ports:
       - "5002:5000"
     volumes:
@@ -87,7 +87,7 @@ services:
     networks:
       - epanet-net
     environment:
-      # 実験ID（sim-runnerと同じディレクトリに保存）
+      # 実験ID（sim_runnerと同じディレクトリに保存）
       - EXP_ID=${EXP_ID:-exp_001}
       # 出力パス
       - OUTPUT_PATH=/shared/results
@@ -114,9 +114,9 @@ services:
   # -------------------------------------------------------
   # シミュレーション実行エンジン
   # -------------------------------------------------------
-  sim-runner:
-    build: ./sim-runner
-    container_name: sim-runner
+  sim_runner:
+    build: ./sim_runner
+    container_name: sim_runner
     volumes:
       - ./shared:/shared
     networks:
@@ -130,7 +130,7 @@ services:
       # ここで接続先を切り替えます
       # controller-pid:5000 (PID)
       # controller-mpc:5000 (MPC)
-      # controller-vla:5000 (VLA)
+      # controller_vla:5000 (VLA)
       - CONTROLLER_URL=http://${CONTROLLER_HOST:-controller-pid}:5000/control
       
       - NETWORK_DIR=/shared/networks
@@ -139,7 +139,7 @@ services:
     depends_on:
       - controller-pid
       - controller-mpc
-      - controller-vla
+      - controller_vla
   # -------------------------------------------------------
   # メトリクス計算
   # -------------------------------------------------------
@@ -170,6 +170,19 @@ services:
       - RESULTS_DIR=/shared/results
       - NETWORKS_DIR=/shared/networks
     restart: always
+
+  # -------------------------------------------------------
+  # 実験チューニング実行サービス（手動実行用）
+  # -------------------------------------------------------
+  experiment-tuner:
+    build: ./tools/tuner
+    working_dir: ${HOST_PROJECT_DIR:-/workspace}
+    volumes:
+      - ${HOST_PROJECT_DIR:-.}:${HOST_PROJECT_DIR:-/workspace}
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - epanet-net
+    command: ["sleep", "infinity"]
     
 networks:
   epanet-net:

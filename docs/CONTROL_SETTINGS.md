@@ -77,18 +77,18 @@
 
 **ノード**: 
 - `161` (高需要エリア)
-- `65` (中需要エリア)
-- `45` (高地エリア)
+- `60` (中需要エリア)
+- `50` (高地エリア)
 
 **アクチュエータ**: 
 - `155` (PRV - Zone 1)
-- `70` (PRV - Zone 2)
+- `60` (PRV - Zone 2)
 - `50` (PRV - Zone 3)
 
 **目標値**: 
 - ノード161: 30.0 m
-- ノード65: 28.0 m
-- ノード45: 32.0 m
+- ノード60: 28.0 m
+- ノード50: 32.0 m
 
 **PIDパラメータ**: Kp=0.005, Ki=0.00005, Kd=0.003
 
@@ -106,13 +106,13 @@
     },
     {
       "loop_id": "loop_2",
-      "target": {"node_id": "65", "target_pressure": 28.0},
-      "actuator": {"link_id": "70", "initial_setting": 0.5},
+      "target": {"node_id": "60", "target_pressure": 28.0},
+      "actuator": {"link_id": "60", "initial_setting": 0.5},
       "pid_params": {"Kp": 0.005, "Ki": 0.00005, "Kd": 0.003}
     },
     {
       "loop_id": "loop_3",
-      "target": {"node_id": "45", "target_pressure": 32.0},
+      "target": {"node_id": "50", "target_pressure": 32.0},
       "actuator": {"link_id": "50", "initial_setting": 0.5},
       "pid_params": {"Kp": 0.005, "Ki": 0.00005, "Kd": 0.003}
     }
@@ -232,13 +232,13 @@
     },
     {
       "loop_id": "loop_2",
-      "target": {"node_id": "65", "target_flow": 150.0},
-      "actuator": {"link_id": "70", "type": "FCV", "initial_setting": 0.5},
+      "target": {"node_id": "60", "target_flow": 150.0},
+      "actuator": {"link_id": "60", "type": "FCV", "initial_setting": 0.5},
       "pid_params": {"Kp": 0.01, "Ki": 0.0001, "Kd": 0.005}
     },
     {
       "loop_id": "loop_3",
-      "target": {"node_id": "45", "target_flow": 100.0},
+      "target": {"node_id": "50", "target_flow": 100.0},
       "actuator": {"link_id": "50", "type": "FCV", "initial_setting": 0.5},
       "pid_params": {"Kp": 0.01, "Ki": 0.0001, "Kd": 0.005}
     }

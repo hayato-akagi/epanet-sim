@@ -19,7 +19,7 @@
 ### 自動計算の仕組み
 
 ```
-[sim-runner]
+[sim_runner]
     ↓ result.csv出力
 [metrics-calculator]
     ├─ 5秒ごとにポーリング

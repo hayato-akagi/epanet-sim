@@ -2,3 +2,5 @@ shared/results/*
 shared/networks/*
 shared/training_data/*
 .env
+__pycache__/
+*.pyc

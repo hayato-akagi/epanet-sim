@@ -55,7 +55,7 @@ VLA (Vision-Language-Action) 制御は、画像とテキストを入力として
 ### サービス構成
 
 ```
-[controller-vla]
+[controller_vla]
     │
     ├─ VLAController
     │   ├─ VLAModel (SimpleDNN/OpenVLA)
@@ -92,9 +92,10 @@ VLA (Vision-Language-Action) 制御は、画像とテキストを入力として
 cat > .env << 'EOF'
 EXP_ID=vla_experiment_001
 EXP_CONFIG_FILE=exp_vla.json
-CONTROLLER_HOST=controller-vla
+CONTROLLER_HOST=controller_vla
 VLA_MODEL=simple_dnn
 VLA_CHECKPOINT=
+VLA_AUTO_RESUME=true
 EOF
 ```
 
@@ -104,9 +105,10 @@ EOF
 |:---|:---|:---|
 | `EXP_ID` | 実験ID | exp_001 |
 | `EXP_CONFIG_FILE` | 設定ファイル名 | exp_vla.json |
-| `CONTROLLER_HOST` | コントローラーホスト | controller-vla |
+| `CONTROLLER_HOST` | コントローラーホスト | controller_vla |
 | `VLA_MODEL` | VLAモデル | simple_dnn |
 | `VLA_CHECKPOINT` | チェックポイントパス | なし |
+| `VLA_AUTO_RESUME` | 最新チェックポイント自動復元 | true |
 
 ---
 
@@ -175,24 +177,24 @@ docker-compose up --build
 
 # または、段階的に起動
 docker-compose up -d redis image-generator data-collector
-docker-compose up -d controller-vla
-docker-compose up sim-runner
+docker-compose up -d controller_vla
+docker-compose up sim_runner
 ```
 
 **起動順序**:
 1. redis（画像キャッシュ）
 2. image-generator（画像生成）
 3. data-collector（データ収集）
-4. controller-vla（VLA制御）
-5. sim-runner（シミュレーション）
+4. controller_vla（VLA制御）
+5. sim_runner（シミュレーション）
 
 ---
 
 ### 4. 動作確認
 
 ```bash
-# controller-vlaのログ確認
-docker-compose logs -f controller-vla | grep -E "(Initialized|EPISODE|ERROR)"
+# controller_vlaのログ確認
+docker-compose logs -f controller_vla | grep -E "(Initialized|EPISODE|ERROR)"
 
 # Redisの画像キー確認
 docker-compose exec redis redis-cli DBSIZE
@@ -287,13 +289,13 @@ VLA_MODEL=tinyvla docker-compose up --build
 
 ```bash
 # エピソード完了ログ
-docker-compose logs -f controller-vla | grep "EPISODE.*COMPLETED"
+docker-compose logs -f controller_vla | grep "EPISODE.*COMPLETED"
 
 # Critic損失
-docker-compose logs -f controller-vla | grep "critic_loss"
+docker-compose logs -f controller_vla | grep "critic_loss"
 
 # Actor損失
-docker-compose logs -f controller-vla | grep "actor_loss"
+docker-compose logs -f controller_vla | grep "actor_loss"
 ```
 
 **期待される出力**:
@@ -327,8 +329,13 @@ docker-compose logs -f controller-vla | grep "actor_loss"
 | `episode` | エピソード番号 |
 | `step_in_episode` | エピソード内ステップ |
 | `total_steps` | 総ステップ数 |
-| `pressure` | 観測圧力 |
-| `target_pressure` | 目標圧力 |
+| `control_mode` | 制御モード（pressure/flow） |
+| `observed_value` | 制御対象の観測値（pressureまたはflow） |
+| `target_value` | 制御対象の目標値（pressureまたはflow） |
+| `pressure` | 観測値（後方互換列） |
+| `target_pressure` | 目標値（後方互換列） |
+| `flow` | 観測流量（flow入力時） |
+| `target_flow` | 目標流量（flow入力時） |
 | `valve_setting` | バルブ開度 |
 | `delta_action` | 行動（変化量） |
 | `reward` | 即時報酬 |
@@ -513,8 +520,8 @@ plt.savefig('mae.png')
 
 3. **接続先URLが間違っている**
    ```bash
-   # controller-vlaの環境変数を確認
-   docker-compose exec controller-vla env | grep IMAGE_GENERATOR_URL
+  # controller_vlaの環境変数を確認
+  docker-compose exec controller_vla env | grep IMAGE_GENERATOR_URL
    ```
 
 ---
@@ -550,17 +557,23 @@ plt.savefig('mae.png')
 
 ### チェックポイントの保存と読み込み
 
+`controller_vla` はエピソード終了時に自動でチェックポイントを保存し、次回起動時に同じ `EXP_ID` の最新チェックポイント（`*_latest.pt`）を自動復元します（`VLA_AUTO_RESUME=true` の場合）。
+
 **保存**:
 ```bash
 # training/controller.pyで自動保存
 # 場所: shared/results/{EXP_ID}/checkpoints/
+# 例: smoke_vla_multi_2ep_loop_1_latest.pt
 ```
 
 **読み込み**:
 ```bash
 # .envファイルで指定
-VLA_CHECKPOINT=/shared/results/vla_experiment_001/checkpoints/episode_100.pth \
+VLA_CHECKPOINT=/shared/results/vla_experiment_001/checkpoints/vla_experiment_001_loop_1_latest.pt \
 docker-compose up --build
+
+# 自動復元を無効化する場合
+VLA_AUTO_RESUME=false docker-compose up --build
 ```
 
 ---
@@ -586,7 +599,7 @@ EOF
   
   EXP_ID=vla_lr_${lr} \
   EXP_CONFIG_FILE=exp_vla_lr_${lr}.json \
-  docker-compose up sim-runner controller-vla
+  docker-compose up sim_runner controller_vla
 done
 ```
 
@@ -619,7 +632,7 @@ done
 # 10エピソード実行
 for episode in {1..10}; do
   EXP_ID=vla_episode_${episode} \
-  docker-compose up sim-runner controller-vla
+  docker-compose up sim_runner controller_vla
 done
 ```
 
@@ -627,7 +640,7 @@ done
 
 ### カスタム報酬関数
 
-**実装場所**: `controller-vla/utils/reward.py`
+**実装場所**: `controller_vla/utils/reward.py`
 
 **例**:
 ```python

@@ -1,0 +1,15 @@
+services:
+  pytest:
+    image: python:3.9-slim
+    container_name: epanet_sim_pytest
+    working_dir: /app
+    volumes:
+      - ./:/app:delegated
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+    command: >
+      /bin/sh -c "
+        pip install --no-cache-dir numpy pandas requests pytest flask simple-pid scipy &&
+        echo 'Workspace contents:' && ls -la /app && pytest -q
+      "

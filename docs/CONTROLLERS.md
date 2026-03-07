@@ -18,6 +18,7 @@
 ### 概要
 
 PID（Proportional-Integral-Derivative）制御は、最も広く使われている古典的な制御手法です。
+```
 
 **動作原理**:
 ```
@@ -29,6 +30,8 @@ u(t) = Kp·e(t) + Ki·∫e(t)dt + Kd·de(t)/dt
 - **D項**: 誤差の変化率（オーバーシュート抑制）
 
 ### 使用方法
+
+命名ルール: `controller-pid` / `controller-mpc` はハイフン、`controller_vla` はアンダースコアのサービス名を使用し、実装ディレクトリ / import はアンダースコア（例: `controller_pid/`, `controller_vla/`, `sim_runner/`）を使用します。
 
 ```bash
 cat > .env << 'EOF'
@@ -258,7 +261,7 @@ VLA（Vision-Language-Action）制御は、画像とテキストを入力とし�
 cat > .env << 'EOF'
 EXP_ID=simplednn_001
 EXP_CONFIG_FILE=exp_vla.json
-CONTROLLER_HOST=controller-vla
+CONTROLLER_HOST=controller_vla
 VLA_MODEL=simple_dnn
 EOF
 
@@ -369,9 +372,14 @@ safety_reward = -10 * safety_weight if violated
 
 | 列 | 説明 |
 |:---|:---|
+| control_mode | 制御モード（pressure/flow） |
+| observed_value | 制御対象の観測値（pressureまたはflow） |
+| target_value | 制御対象の目標値（pressureまたはflow） |
 | step_in_episode | エピソード内ステップ |
-| pressure | 観測圧力 |
-| target_pressure | 目標圧力 |
+| pressure | 観測値（後方互換列） |
+| target_pressure | 目標値（後方互換列） |
+| flow | 観測流量（flow入力時） |
+| target_flow | 目標流量（flow入力時） |
 | delta_action | 行動（バルブ変化量） |
 | reward | 即時報酬 |
 | critic_loss | Critic損失 |

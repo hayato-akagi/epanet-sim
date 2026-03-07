@@ -28,12 +28,12 @@
     {
       "loop_id": "loop_2",
       "target": {
-        "node_id": "65",
+        "node_id": "60",
         "target_pressure": 28.0,
         "target_flow": 150.0
       },
       "actuator": {
-        "link_id": "70",
+        "link_id": "60",
         "initial_setting": 0.5
       },
       "pid_params": {
@@ -45,7 +45,7 @@
     {
       "loop_id": "loop_3",
       "target": {
-        "node_id": "45",
+        "node_id": "50",
         "target_pressure": 32.0,
         "target_flow": 100.0
       },

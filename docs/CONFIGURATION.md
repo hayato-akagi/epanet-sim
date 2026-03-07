@@ -821,6 +821,8 @@ shared/configs/
 
 ### 使用方法
 
+命名ルール: `controller-pid` / `controller-mpc` はハイフン、`controller_vla` はアンダースコアのサービス名を使用し、実装ディレクトリ / import はアンダースコア（例: `controller_pid/`, `controller_vla/`, `sim_runner/`）を使用します。
+
 ```bash
 # .envファイルで指定
 cat > .env << 'EOF'

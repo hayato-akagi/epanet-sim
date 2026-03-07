@@ -1,0 +1,2 @@
+Flask==2.3.3
+simple-pid==2.0.0

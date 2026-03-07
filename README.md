@@ -19,12 +19,14 @@ EPANETを用いた水理シミュレーションと、外部のPythonベース�
 
 ### コアサービス
 
-1. **sim-runner** - EPANETシミュレータ実行エンジン（物理環境）
+1. **sim_runner** - EPANETシミュレータ実行エンジン（物理環境）
 2. **controller-pid** - PID制御アルゴリズム
 3. **controller-mpc** - モデル予測制御（MPC）
-4. **controller-vla** - Vision-Language-Action制御（強化学習）
+4. **controller_vla** - Vision-Language-Action制御（強化学習）
 5. **metrics-calculator** - 制御性能指標の自動計算
 6. **visualization** - Streamlit可視化ダッシュボード
+
+命名ルール: `controller-pid` / `controller-mpc` はハイフン、`controller_vla` はアンダースコアのサービス名を使用し、実装ディレクトリ / import はアンダースコア（例: `controller_pid/`, `controller_vla/`, `sim_runner/`）を使用します。
 
 ### VLA支援サービス
 
@@ -37,14 +39,14 @@ EPANETを用いた水理シミュレーションと、外部のPythonベース�
 ```mermaid
 graph TB
     subgraph "Simulation Core"
-        SR[sim-runner] -->|Read| INP[Net1.inp]
+        SR[sim_runner] -->|Read| INP[Net1.inp]
         SR -->|Write| RES[result.csv]
     end
     
     subgraph "Controllers"
         SR -->|HTTP POST| PID[controller-pid]
         SR -->|HTTP POST| MPC[controller-mpc]
-        SR -->|HTTP POST| VLA[controller-vla]
+        SR -->|HTTP POST| VLA[controller_vla]
         PID -->|Action| SR
         MPC -->|Action| SR
         VLA -->|Delta Action| SR
@@ -101,8 +103,10 @@ docker-compose up --build
 cat > .env << 'EOF'
 EXP_ID=simplednn_001
 EXP_CONFIG_FILE=exp_vla.json
-CONTROLLER_HOST=controller-vla
+CONTROLLER_HOST=controller_vla
 VLA_MODEL=simple_dnn
+VLA_CHECKPOINT=
+VLA_AUTO_RESUME=true
 EOF
 
 # VLA関連サービスも起動
@@ -117,7 +121,7 @@ docker-compose up --build
 
 ## サービス詳細
 
-### 1. sim-runner (シミュレーション実行エンジン)
+### 1. sim_runner (シミュレーション実行エンジン)
 
 **役割**: 物理環境（配水ネットワーク）のシミュレーション
 
@@ -128,7 +132,7 @@ docker-compose up --build
 - コントローラーからの制御指令（バルブ開度）の適用
 - 結果のCSV出力（result.csv）
 
-**実装**: `/sim-runner/main.py`
+**実装**: `/sim_runner/main.py`
 
 **入力**:
 - EPANET INPファイル (`shared/networks/*.inp`)
@@ -139,7 +143,7 @@ docker-compose up --build
 - `result.csv` - タイムステップごとのシミュレーション結果
 
 **接続先**:
-- controller-pid / controller-mpc / controller-vla (HTTP POST)
+- controller-pid / controller-mpc / controller_vla (HTTP POST)
 
 ---
 
@@ -153,7 +157,7 @@ docker-compose up --build
 - バルブ開度の決定
 - 複数ループの独立制御
 
-**実装**: `/controller-pid/app.py`
+**実装**: `/controller_pid/app.py`
 
 **API**:
 - `POST /control` - 制御計算
@@ -202,7 +206,7 @@ docker-compose up --build
 - 制約条件の考慮
 - 複数ループの独立制御
 
-**実装**: `/controller-mpc/app.py`
+**実装**: `/controller_mpc/app.py`
 
 **API**: controller-pidと同じ形式
 
@@ -213,7 +217,7 @@ docker-compose up --build
 
 ---
 
-### 4. controller-vla (Vision-Language-Action制御)
+### 4. controller_vla (Vision-Language-Action制御)
 
 **役割**: 画像とテキストを入力とする強化学習ベースの制御
 
@@ -223,7 +227,7 @@ docker-compose up --build
 - SAC（Soft Actor-Critic）による学習
 - エピソード統計の計算・保存
 
-**実装**: `/controller-vla/`
+**実装**: `/controller_vla/`
 - `app.py` - Flaskアプリケーション
 - `training/controller.py` - VLAController
 - `models/simple_dnn.py` - SimpleDNN VLAモデル
@@ -237,7 +241,10 @@ docker-compose up --build
 {
   "loop_id": "loop_1",
   "pressure": 127.5,
-  "target": 120.0,
+  "target": {
+    "target_pressure": 120.0,
+    "target_flow": 100.0
+  },
   "prev_action": 1.0,
   "step": 0,
   "time_step": 0
@@ -254,6 +261,12 @@ docker-compose up --build
 **学習データ出力**:
 - `training_steps.csv` - ステップごとの詳細ログ
 - `training_episodes.csv` - エピソード統計
+
+**チェックポイント**:
+- 保存先: `shared/results/<EXP_ID>/checkpoints/`
+- エピソード終了時に `*_latest.pt` と `*_epN.pt` を自動保存
+- `VLA_AUTO_RESUME=true` の場合、同じ `EXP_ID` の `*_latest.pt` を起動時に自動復元
+- `VLA_CHECKPOINT` を指定すると、そのパスを優先して復元
 
 **依存サービス**:
 - redis（画像キャッシュ）
@@ -439,7 +452,7 @@ shared/training_data/{exp_id}/
 ### PID/MPC制御の場合
 
 ```
-[sim-runner]
+[sim_runner]
     │
     ├─ 1. センサーデータ読取
     │     (圧力、流量)
@@ -452,7 +465,7 @@ shared/training_data/{exp_id}/
     │     │
     │     └─ 3. バルブ開度
     │           ↓
-    [sim-runner]
+    [sim_runner]
     │     │
     │     ├─ 4. バルブ開度適用
     │     ├─ 5. 水理計算実行
@@ -470,14 +483,14 @@ shared/training_data/{exp_id}/
 ### VLA制御の場合
 
 ```
-[sim-runner]
+[sim_runner]
     │
     ├─ 1. センサーデータ読取
     │     (圧力、流量)
     │
     ├─ 2. HTTP POST
     │     ↓
-    [controller-vla]
+    [controller_vla]
     │     │
     │     ├─ 3. 画像生成リクエスト
     │     │     ↓
@@ -505,14 +518,14 @@ shared/training_data/{exp_id}/
     │     │
     │     └─ 10. delta_action返却
     │           ↓
-    [sim-runner]
+    [sim_runner]
     │     │
     │     ├─ 11. バルブ開度更新
     │     │      (current + delta)
     │     ├─ 12. 水理計算実行
     │     └─ 13. result.csv出力
     │           ↓
-    [controller-vla]
+    [controller_vla]
     │     │
     │     └─ 14. training_steps.csv
     │            training_episodes.csv生成
@@ -534,7 +547,7 @@ shared/training_data/{exp_id}/
 |:---|:---:|:---:|:---|
 | controller-pid | 5000 | 5000 | HTTP |
 | controller-mpc | 5001 | 5000 | HTTP |
-| controller-vla | 5002 | 5000 | HTTP |
+| controller_vla | 5002 | 5000 | HTTP |
 | image-generator | 5003 | 5000 | HTTP |
 | data-collector | 5004 | 5000 | HTTP |
 | redis | 6379 | 6379 | Redis |
@@ -586,6 +599,12 @@ shared/training_data/{exp_id}/
 ### training_steps.csv（VLAのみ）
 ステップごとの詳細なトレーニングログ
 
+主要列:
+- `control_mode`（`pressure` / `flow`）
+- `observed_value`, `target_value`（制御対象の実値/目標値）
+- `pressure`, `target_pressure`（後方互換列）
+- `flow`, `target_flow`（flow入力がある場合）
+
 ---
 
 ## ディレクトリ構造
@@ -600,14 +619,14 @@ shared/training_data/{exp_id}/
 │   ├── METRICS.md
 │   ├── VISUALIZATION.md
 │   └── DEVELOPMENT.md
-├── controller-pid/           # PID制御
-├── controller-mpc/           # MPC制御
-├── controller-vla/           # VLA制御（強化学習）
+├── controller_pid/           # PID制御
+├── controller_mpc/           # MPC制御
+├── controller_vla/           # VLA制御（強化学習）
 │   ├── app.py
 │   ├── models/               # VLAモデル
 │   ├── training/             # 学習ロジック
 │   └── utils/
-├── sim-runner/               # シミュレーション実行
+├── sim_runner/               # シミュレーション実行
 ├── image-generator/          # 画像生成
 ├── data-collector/           # データ収集
 ├── metrics/                  # メトリクス計算
@@ -627,7 +646,7 @@ shared/training_data/{exp_id}/
 - ✨ VLA (Vision-Language-Action) コントローラーの追加
 - ✨ 画像生成・データ収集サービスの追加
 - ✨ エピソード統計の自動計算
-- 🔧 sim-runnerのコントローラータイプ自動判定
+- 🔧 sim_runnerのコントローラータイプ自動判定
 - 📚 ドキュメントの分割・整理
 
 ### v2.0.0 (2025-11-23)
