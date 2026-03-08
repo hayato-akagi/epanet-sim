@@ -4,7 +4,7 @@
     "inp_file": "Net1_flow.inp"
   },
   "simulation": {
-    "duration": 86400,
+    "duration": 21600,
     "hydraulic_step": 600
   },
   "control_loops": [
@@ -63,8 +63,8 @@
         "action": {
           "type": "continuous",
           "delta_range": [
-            -0.06,
-            0.06
+            -0.08,
+            0.08
           ],
           "absolute_range": [
             0.1,
@@ -73,8 +73,8 @@
           "clip": true
         },
         "reward": {
-          "tracking_weight": 2.0,
-          "stability_weight": 0.7,
+          "tracking_weight": 2.4,
+          "stability_weight": 0.5,
           "safety_weight": 1.0,
           "normalize": true,
           "clip_range": [

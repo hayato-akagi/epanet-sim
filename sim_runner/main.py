@@ -107,6 +107,53 @@ class RemoteValveControlEnv:
                 return float(value.flat[0])
         return float(value)
 
+    def _resolve_target_value(self, loop_config, target_key, default_value, current_time):
+        """
+        Resolve target value from static target or time-varying profile.
+
+        Supported profile format in config:
+        target: {
+          "target_flow": 1200.0,
+          "target_flow_profile": [
+            {"time": 0, "value": 1200.0},
+            {"time": 21600, "value": 1500.0}
+          ]
+        }
+        """
+        target_config = loop_config.get('target', {}) if isinstance(loop_config, dict) else {}
+        profile_key = f"{target_key}_profile"
+        profile = target_config.get(profile_key)
+
+        if not isinstance(profile, list) or len(profile) == 0:
+            return target_config.get(target_key, default_value)
+
+        valid_points = []
+        for point in profile:
+            if not isinstance(point, dict):
+                continue
+            if point.get('time') is None or point.get('value') is None:
+                continue
+            try:
+                point_time = float(point.get('time'))
+                point_value = float(point.get('value'))
+                valid_points.append((point_time, point_value))
+            except (TypeError, ValueError):
+                continue
+
+        if len(valid_points) == 0:
+            return target_config.get(target_key, default_value)
+
+        valid_points.sort(key=lambda item: item[0])
+
+        selected_value = valid_points[0][1]
+        for point_time, point_value in valid_points:
+            if current_time >= point_time:
+                selected_value = point_value
+            else:
+                break
+
+        return selected_value
+
     def _build_sensor_entry(self, loop_info, loop_config, measurements, step_count, current_time):
         """
         Build a sensor_data entry that includes both pressure and flow, and
@@ -117,12 +164,32 @@ class RemoteValveControlEnv:
         # Decide controlled value and target depending on control mode
         if self.control_mode == 'flow':
             controlled_value = measurements['flow']
-            target_pressure = loop_config['target'].get('target_pressure', 30.0)
-            target_flow = loop_config['target'].get('target_flow', 100.0)
+            target_pressure = self._resolve_target_value(
+                loop_config,
+                target_key='target_pressure',
+                default_value=30.0,
+                current_time=current_time
+            )
+            target_flow = self._resolve_target_value(
+                loop_config,
+                target_key='target_flow',
+                default_value=100.0,
+                current_time=current_time
+            )
         else:
             controlled_value = measurements['measured_pressure']
-            target_pressure = loop_config['target'].get('target_pressure', 30.0)
-            target_flow = loop_config['target'].get('target_flow', 100.0)
+            target_pressure = self._resolve_target_value(
+                loop_config,
+                target_key='target_pressure',
+                default_value=30.0,
+                current_time=current_time
+            )
+            target_flow = self._resolve_target_value(
+                loop_config,
+                target_key='target_flow',
+                default_value=100.0,
+                current_time=current_time
+            )
 
         entry = {
             "loop_id": loop_info['loop_id'],

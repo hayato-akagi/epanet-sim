@@ -4,6 +4,7 @@ set -euo pipefail
 VLA_EPISODES=${1:-20}
 PID_RUNS=${PID_RUNS:-3}
 EXP_PREFIX=${EXP_PREFIX:-net1_flow_compare_$(date +%Y%m%d_%H%M%S)}
+VLA_MODEL_NAME=${VLA_MODEL:-openvla}
 
 PID_CONFIG=${PID_CONFIG:-exp_pid_net1_flow_fair.json}
 VLA_CONFIG=${VLA_CONFIG:-exp_vla_net1_flow_fair.json}
@@ -45,6 +46,7 @@ echo "=========================================="
 echo "Net1 Flow PID vs VLA fair comparison"
 echo "EXP_PREFIX=${EXP_PREFIX}"
 echo "PID_RUNS=${PID_RUNS}, VLA_EPISODES=${VLA_EPISODES}"
+echo "VLA_MODEL=${VLA_MODEL_NAME}"
 echo "=========================================="
 
 # Safety cleanup
@@ -88,7 +90,7 @@ rm -rf "shared/results/${vla_exp_id}"
 EXP_ID="$vla_exp_id" \
 EXP_CONFIG_FILE="$VLA_CONFIG" \
 CONTROLLER_HOST=controller_vla \
-VLA_MODEL=dummy \
+VLA_MODEL="$VLA_MODEL_NAME" \
 VLA_AUTO_RESUME=true \
 SAVE_IMAGES=false \
 docker compose up -d redis image-generator data-collector metrics-calculator controller_vla
@@ -101,7 +103,7 @@ for i in $(seq 1 "$VLA_EPISODES"); do
     EXP_ID="$vla_exp_id" \
     EXP_CONFIG_FILE="$VLA_CONFIG" \
     CONTROLLER_HOST=controller_vla \
-    VLA_MODEL=dummy \
+    VLA_MODEL="$VLA_MODEL_NAME" \
     VLA_AUTO_RESUME=true \
     SAVE_IMAGES=false \
     docker compose restart controller_vla
@@ -111,7 +113,7 @@ for i in $(seq 1 "$VLA_EPISODES"); do
   EXP_ID="$vla_exp_id" \
   EXP_CONFIG_FILE="$VLA_CONFIG" \
   CONTROLLER_HOST=controller_vla \
-  VLA_MODEL=dummy \
+  VLA_MODEL="$VLA_MODEL_NAME" \
   VLA_AUTO_RESUME=true \
   SAVE_IMAGES=false \
   docker compose up --build --abort-on-container-exit sim_runner

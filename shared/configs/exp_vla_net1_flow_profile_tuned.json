@@ -13,7 +13,13 @@
       "target": {
         "node_id": "2",
         "target_pressure": 30.0,
-        "target_flow": 1200.0
+        "target_flow": 1200.0,
+        "target_flow_profile": [
+          {"time": 0, "value": 1200.0},
+          {"time": 21600, "value": 1700.0},
+          {"time": 43200, "value": 900.0},
+          {"time": 64800, "value": 1500.0}
+        ]
       },
       "actuator": {
         "link_id": "10",
@@ -28,10 +34,7 @@
         "algorithm": "sac",
         "device": "cpu",
         "network": {
-          "hidden_dims": [
-            256,
-            256
-          ],
+          "hidden_dims": [256, 256],
           "activation": "relu"
         },
         "training": {
@@ -52,24 +55,13 @@
         },
         "observation": {
           "use_images": true,
-          "image_types": [
-            "system_ui",
-            "valve_detail",
-            "flow_dashboard",
-            "comparison"
-          ],
+          "image_types": ["system_ui", "valve_detail", "flow_dashboard", "comparison"],
           "use_numerical": true
         },
         "action": {
           "type": "continuous",
-          "delta_range": [
-            -0.06,
-            0.06
-          ],
-          "absolute_range": [
-            0.1,
-            1.0
-          ],
+          "delta_range": [-0.06, 0.06],
+          "absolute_range": [0.1, 1.0],
           "clip": true
         },
         "reward": {
@@ -77,10 +69,7 @@
           "stability_weight": 0.7,
           "safety_weight": 1.0,
           "normalize": true,
-          "clip_range": [
-            -20,
-            20
-          ],
+          "clip_range": [-20, 20],
           "safety_bounds": {
             "pressure_min": 45.0,
             "pressure_max": 65.0
@@ -94,8 +83,8 @@
     }
   ],
   "experiment": {
-    "name": "net1_flow_vla_fair",
-    "description": "Fair VLA setting on Net1_flow (same duration/step/action range as PID)",
+    "name": "net1_flow_vla_profile_tuned",
+    "description": "VLA with time-varying flow target profile (step changes)",
     "max_episodes": 20,
     "seed": 42
   }

@@ -4,7 +4,7 @@
     "inp_file": "Net1_flow.inp"
   },
   "simulation": {
-    "duration": 86400,
+    "duration": 21600,
     "hydraulic_step": 600
   },
   "control_loops": [
@@ -23,7 +23,7 @@
       },
       "pid_params": {
         "Kp": 0.01,
-        "Ki": 0.0002,
+        "Ki": 0.0001,
         "Kd": 0.01
       }
     }

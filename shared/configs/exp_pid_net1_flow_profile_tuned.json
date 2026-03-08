@@ -13,7 +13,13 @@
       "target": {
         "node_id": "2",
         "target_pressure": 30.0,
-        "target_flow": 1200.0
+        "target_flow": 1200.0,
+        "target_flow_profile": [
+          {"time": 0, "value": 1200.0},
+          {"time": 21600, "value": 1700.0},
+          {"time": 43200, "value": 900.0},
+          {"time": 64800, "value": 1500.0}
+        ]
       },
       "actuator": {
         "link_id": "10",
@@ -29,8 +35,8 @@
     }
   ],
   "experiment": {
-    "name": "net1_flow_pid_fair",
-    "description": "Fair PID baseline on Net1_flow (same duration/step/action range as VLA)",
+    "name": "net1_flow_pid_profile_tuned",
+    "description": "PID baseline with time-varying flow target profile (step changes)",
     "seed": 42
   }
 }

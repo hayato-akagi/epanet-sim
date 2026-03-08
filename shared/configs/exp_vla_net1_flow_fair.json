@@ -13,7 +13,7 @@
       "target": {
         "node_id": "2",
         "target_pressure": 30.0,
-        "target_flow": 100.0
+        "target_flow": 1200.0
       },
       "actuator": {
         "link_id": "10",
@@ -54,19 +54,19 @@
         },
         "action": {
           "type": "continuous",
-          "delta_range": [-0.1, 0.1],
+          "delta_range": [-0.06, 0.06],
           "absolute_range": [0.1, 1.0],
           "clip": true
         },
         "reward": {
-          "tracking_weight": 1.0,
-          "stability_weight": 0.5,
-          "safety_weight": 10.0,
+          "tracking_weight": 2.0,
+          "stability_weight": 0.7,
+          "safety_weight": 1.0,
           "normalize": true,
-          "clip_range": [-10, 10],
+          "clip_range": [-20, 20],
           "safety_bounds": {
-            "pressure_min": 20.0,
-            "pressure_max": 40.0
+            "pressure_min": 45.0,
+            "pressure_max": 65.0
           }
         },
         "checkpointing": {

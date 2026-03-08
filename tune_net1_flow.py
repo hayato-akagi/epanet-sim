@@ -174,11 +174,12 @@ def build_vla_candidates(base_cfg: dict, max_candidates: int) -> list[tuple[dict
                 "learning_rate_actor": 3e-4,
                 "learning_rate_critic": 3e-4,
                 "learning_rate_alpha": 3e-4,
-                "alpha": 0.2,
-                "tracking_weight": 1.0,
-                "stability_weight": 0.5,
-                "delta_range": [-0.1, 0.1],
-                "initial_random_steps": 50,
+                "alpha": 0.15,
+                "tracking_weight": 2.0,
+                "stability_weight": 0.7,
+                "safety_weight": 1.0,
+                "delta_range": [-0.06, 0.06],
+                "initial_random_steps": 40,
             },
         ),
         (
@@ -188,9 +189,10 @@ def build_vla_candidates(base_cfg: dict, max_candidates: int) -> list[tuple[dict
                 "learning_rate_critic": 3e-4,
                 "learning_rate_alpha": 3e-4,
                 "alpha": 0.15,
-                "tracking_weight": 1.5,
-                "stability_weight": 0.4,
-                "delta_range": [-0.12, 0.12],
+                "tracking_weight": 2.4,
+                "stability_weight": 0.5,
+                "safety_weight": 1.0,
+                "delta_range": [-0.08, 0.08],
                 "initial_random_steps": 40,
             },
         ),
@@ -201,8 +203,9 @@ def build_vla_candidates(base_cfg: dict, max_candidates: int) -> list[tuple[dict
                 "learning_rate_critic": 2e-4,
                 "learning_rate_alpha": 2e-4,
                 "alpha": 0.1,
-                "tracking_weight": 1.2,
-                "stability_weight": 0.9,
+                "tracking_weight": 2.0,
+                "stability_weight": 1.0,
+                "safety_weight": 0.8,
                 "delta_range": [-0.06, 0.06],
                 "initial_random_steps": 30,
             },
@@ -214,9 +217,10 @@ def build_vla_candidates(base_cfg: dict, max_candidates: int) -> list[tuple[dict
                 "learning_rate_critic": 5e-4,
                 "learning_rate_alpha": 3e-4,
                 "alpha": 0.25,
-                "tracking_weight": 1.2,
+                "tracking_weight": 2.2,
                 "stability_weight": 0.6,
-                "delta_range": [-0.15, 0.15],
+                "safety_weight": 1.2,
+                "delta_range": [-0.1, 0.1],
                 "initial_random_steps": 70,
             },
         ),
@@ -233,6 +237,12 @@ def build_vla_candidates(base_cfg: dict, max_candidates: int) -> list[tuple[dict
         vla["training"]["alpha"] = p["alpha"]
         vla["reward"]["tracking_weight"] = p["tracking_weight"]
         vla["reward"]["stability_weight"] = p["stability_weight"]
+        vla["reward"]["safety_weight"] = p["safety_weight"]
+        vla["reward"]["clip_range"] = [-20, 20]
+        vla["reward"]["safety_bounds"] = {
+            "pressure_min": 45.0,
+            "pressure_max": 65.0,
+        }
         vla["action"]["delta_range"] = p["delta_range"]
         vla["exploration"]["initial_random_steps"] = p["initial_random_steps"]
 
@@ -257,10 +267,11 @@ def main() -> int:
     parser.add_argument("--pid-candidates", type=int, default=8)
     parser.add_argument("--vla-candidates", type=int, default=4)
     parser.add_argument("--vla-episodes", type=int, default=8)
+    parser.add_argument("--target-flow", type=float, default=1200.0)
     parser.add_argument("--tuning-duration", type=int, default=21600, help="seconds; faster tuning duration")
     parser.add_argument("--hydraulic-step", type=int, default=600)
     parser.add_argument("--final-duration", type=int, default=86400)
-    parser.add_argument("--vla-model", type=str, default="dummy")
+    parser.add_argument("--vla-model", type=str, default="openvla")
     parser.add_argument("--runtime-mode", choices=["host", "container"], default="host")
     parser.add_argument("--run-final", action="store_true", help="Run final comparison using tuned configs")
     args = parser.parse_args()
@@ -275,6 +286,7 @@ def main() -> int:
     for cfg in (pid_base, vla_base):
         cfg["simulation"]["duration"] = args.tuning_duration
         cfg["simulation"]["hydraulic_step"] = args.hydraulic_step
+        cfg["control_loops"][0]["target"]["target_flow"] = args.target_flow
 
     print("=== PID tuning ===")
     pid_best = None
