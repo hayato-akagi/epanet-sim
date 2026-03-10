@@ -11,7 +11,12 @@ RUN set -eux; \
 	git clone --depth 1 --branch v2.2 https://github.com/OpenWaterAnalytics/EPANET.git /tmp/epanet; \
 	cmake -S /tmp/epanet -B /tmp/epanet/build -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release; \
 	cmake --build /tmp/epanet/build -j"$(nproc)"; \
-	EPANET_SO=$(find /tmp/epanet/build -type f -name 'libepanet*.so*' | head -n 1); \
+	echo "=== Built .so files ==="; \
+	find /tmp/epanet/build -type f -name 'libepanet*.so*' -ls; \
+	EPANET_SO=$(find /tmp/epanet/build -type f \( -name 'libepanet2.so' -o -name 'libepanet2_2.so' \) ! -name '*output*' | head -n 1); \
+	test -n "$EPANET_SO" || { echo "ERROR: main epanet library not found"; exit 1; }; \
+	echo "Using: $EPANET_SO"; \
+	nm -D "$EPANET_SO" | grep -q EN_getversion || { echo "ERROR: EN_getversion symbol missing"; exit 1; }; \
 	cp "$EPANET_SO" /tmp/libepanet2_2.so
 
 FROM python:3.9-slim
