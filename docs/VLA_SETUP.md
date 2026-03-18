@@ -249,28 +249,30 @@ VLA_MODEL=simple_dnn docker-compose up --build
 ### OpenVLA（大規模モデル）
 
 **特徴**:
-- 大規模な事前学習済みVLAモデル
-- 高い表現力
-- 計算コスト高
+- SigLIP + DINOv2（vision）+ Llama-2 7B（LLM）の事前学習済み重みを活用
+- Vision Backbone は凍結、LLM は LoRA (rank=32)、Action Head のみ全学習
+- 詳細は [VLA_MODELS.md](VLA_MODELS.md#openvla) を参照
 
 **必要リソース**:
-- GPU: 8GB以上
-- メモリ: 16GB以上
+- GPU: 14GB以上（fp16）、6GB以上（4-bit量子化）
+- 推奨: 24GB VRAM（fp16 + LoRA 学習）
 
 **使用方法**:
 ```bash
 VLA_MODEL=openvla docker-compose up --build
 ```
 
-**注意**: 現在未実装。将来のリリースで対応予定。
+**初回起動時の注意**: `openvla/openvla-7b`（約15GB）が HuggingFace から自動ダウンロードされます。
+`HF_HOME` 環境変数でキャッシュ先を指定することを推奨します。
 
 ---
 
 ### SmolVLA / TinyVLA
 
 **特徴**:
-- 中間サイズのモデル
-- OpenVLAより軽量
+- SmolVLA: SmolVLM2-500M + Flow Matching Action Expert
+- TinyVLA: LLaVA-Pythia + Diffusion Policy Head
+- 詳細は [VLA_MODELS.md](VLA_MODELS.md) を参照
 
 **使用方法**:
 ```bash
@@ -279,7 +281,7 @@ VLA_MODEL=smolvla docker-compose up --build
 VLA_MODEL=tinyvla docker-compose up --build
 ```
 
-**注意**: 現在未実装。将来のリリースで対応予定。
+**注意**: 実装中。使用時は `simple_dnn` または `openvla` にフォールバックされます。
 
 ---
 

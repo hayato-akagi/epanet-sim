@@ -149,12 +149,12 @@ def test_image_fetch_and_data_collector_integration():
     # Provide a dummy VLA implementation so initialize_controller() can instantiate it
     if 'models.dummy_agent' not in sys.modules:
         dummy_mod = types.ModuleType('models.dummy_agent')
-        class DummyVLA:
+        class DummyAgent:
             def __init__(self, *a, **k):
                 pass
             def predict(self, images, prompt):
                 return 0.0
-        dummy_mod.DummyVLA = DummyVLA
+        dummy_mod.DummyAgent = DummyAgent
         sys.modules['models.dummy_agent'] = dummy_mod
 
     # Provide lightweight `utils` package and required submodules

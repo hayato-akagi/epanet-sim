@@ -1,304 +1,419 @@
 """
-OpenVLA - Vision Transformer based VLA
-- Vision Transformer for image encoding
-- Cross-attention between images and prompt
-- Closer to real OpenVLA architecture
-- SimpleDNNVLA interface compatible
+OpenVLA - True OpenVLA Implementation
+======================================
+Based on: https://github.com/openvla/openvla
+Paper: OpenVLA: An Open-Source Vision-Language-Action Model (Kim et al., 2024)
+HuggingFace: openvla/openvla-7b
 
-Dependencies (optional, will fallback if not available):
-    pip install timm  # For Vision Transformer
+Architecture:
+  - Vision Backbone : SigLIP ViT-So400m/14 + DINOv2 ViT-L/14 (fused)  → FROZEN
+  - Projector       : 2-layer MLP (vision → LLM embedding space)         → Full train
+  - Language Model  : Llama-2 7B                                          → LoRA (rank=32)
+  - Action Head     : Custom regression head for Δvalve ∈ [-0.05, 0.05]  → Full train
+
+Training strategy (per this project):
+  Frozen   : vision_backbone.* (SigLIP + DINOv2 pretrained weights)
+  LoRA     : language_model.* attention + FFN layers (target_modules="all-linear")
+  Full     : projector.*, action_head.*
+
+Checkpoint format (directory):
+  <checkpoint_dir>/
+    adapter_config.json    ← LoRA config (saved by PEFT)
+    adapter_model.bin      ← LoRA weights (saved by PEFT)
+    action_head.pt         ← action head state dict
+
+Requirements:
+    pip install transformers>=4.40.0 peft>=0.9.0 accelerate>=0.27.0
+    pip install bitsandbytes>=0.43.0  # optional, for 4-bit quantization
+    pip install sentencepiece protobuf  # tokenizer deps
 """
 
+import os
+import logging
 import torch
 import torch.nn as nn
-import torchvision.transforms as transforms
 from PIL import Image
-import re
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Optional dependency checks
+# ---------------------------------------------------------------------------
+try:
+    from transformers import AutoModelForVision2Seq, AutoProcessor
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+    logger.warning(
+        "[OpenVLA] transformers not installed.\n"
+        "  Run: pip install transformers>=4.40.0 accelerate>=0.27.0"
+    )
 
 try:
-    import timm
-    TIMM_AVAILABLE = True
+    from peft import LoraConfig, get_peft_model, TaskType, PeftModel
+    PEFT_AVAILABLE = True
 except ImportError:
-    TIMM_AVAILABLE = False
-    print("[OpenVLA] Warning: timm not available, using CNN fallback")
+    PEFT_AVAILABLE = False
+    logger.warning(
+        "[OpenVLA] peft not installed.\n"
+        "  Run: pip install peft>=0.9.0"
+    )
 
 
-class ViTImageEncoder(nn.Module):
-    """Vision Transformer for image encoding"""
-    
-    def __init__(self):
+# ---------------------------------------------------------------------------
+# Action Head
+# ---------------------------------------------------------------------------
+class OpenVLAActionHead(nn.Module):
+    """
+    1D 連続バルブ制御用アクションヘッド。
+    OpenVLA の 7-DoF 離散トークン出力を置き換える。
+
+    入力 : LLM 最終層の hidden state [B, seq_len, hidden_size]
+    出力 : Δvalve ∈ [-1, 1]  (スケール適用後 [-0.05, 0.05])
+    """
+
+    def __init__(self, hidden_size: int = 4096):
         super().__init__()
-        
-        if TIMM_AVAILABLE:
-            # Use Vision Transformer (ViT-Tiny)
-            self.vit = timm.create_model('vit_tiny_patch16_224', pretrained=False, num_classes=0)
-            self.output_dim = 192  # ViT-Tiny embedding dim
-        else:
-            # Fallback to CNN
-            self.vit = nn.Sequential(
-                nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3),
-                nn.BatchNorm2d(64),
-                nn.ReLU(),
-                nn.MaxPool2d(3, 2, 1),
-                
-                nn.Conv2d(64, 128, 3, 2, 1),
-                nn.BatchNorm2d(128),
-                nn.ReLU(),
-                
-                nn.Conv2d(128, 192, 3, 2, 1),
-                nn.BatchNorm2d(192),
-                nn.ReLU(),
-                
-                nn.AdaptiveAvgPool2d(1),
-                nn.Flatten()
-            )
-            self.output_dim = 192
-    
-    def forward(self, x):
-        return self.vit(x)
-
-
-class CrossAttentionBlock(nn.Module):
-    """画像とプロンプト間のCross-Attention"""
-    
-    def __init__(self, dim, num_heads=4):
-        super().__init__()
-        self.attention = nn.MultiheadAttention(dim, num_heads, batch_first=True)
-        self.norm1 = nn.LayerNorm(dim)
-        self.norm2 = nn.LayerNorm(dim)
-        self.ffn = nn.Sequential(
-            nn.Linear(dim, dim * 4),
-            nn.GELU(),
-            nn.Linear(dim * 4, dim)
-        )
-    
-    def forward(self, query, key_value):
-        """
-        Args:
-            query: [B, N_query, dim] (prompt features)
-            key_value: [B, N_kv, dim] (image features)
-        """
-        # Cross-attention
-        attended, _ = self.attention(query, key_value, key_value)
-        query = self.norm1(query + attended)
-        
-        # FFN
-        ffn_out = self.ffn(query)
-        query = self.norm2(query + ffn_out)
-        
-        return query
-
-
-class OpenVLA(nn.Module):
-    """
-    OpenVLA - Vision Transformer based VLA
-    
-    Architecture:
-    1. Vision Encoder (ViT) - 画像を埋め込みベクトルに
-    2. Prompt Encoder (MLP) - プロンプトを埋め込みベクトルに
-    3. Cross-Attention - 画像とプロンプトを統合
-    4. Action Head (MLP) - アクションを出力
-    """
-    
-    def __init__(self):
-        super().__init__()
-class TinyVLA(nn.Module):
-    """
-    TinyVLA - SimpleDNNVLAの改良版
-    
-    Improvements:
-    - ResNet-style blocks (残差接続)
-    - Attention mechanism (画像間の関係性を学習)
-    - Better normalization (BatchNorm)
-    - Deeper network (より表現力が高い)
-    """
-    
-    def __init__(self):
-        super().__init__()
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
-class TinyVLA(nn.Module):
-    """
-    TinyVLA - SimpleDNNVLAの改良版
-    
-    Improvements:
-    - ResNet-style blocks (残差接続)
-    - Attention mechanism (画像間の関係性を学習)
-    - Better normalization (BatchNorm)
-    - Deeper network (より表現力が高い)
-    """
-    
-    def __init__(self):
-        super().__init__()
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        
-        # Vision encoder
-        self.vision_encoder = ViTImageEncoder()
-        vision_dim = self.vision_encoder.output_dim  # 192
-        
-        # Prompt encoder
-        self.prompt_dim = 5  # [current, target, valve, upstream, downstream]
-        self.prompt_encoder = nn.Sequential(
-            nn.Linear(self.prompt_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, 128),
-            nn.ReLU(),
-            nn.Linear(128, vision_dim),  # Match vision dim
-            nn.ReLU()
-        )
-        
-        # Cross-attention blocks
-        self.cross_attention1 = CrossAttentionBlock(vision_dim, num_heads=4)
-        self.cross_attention2 = CrossAttentionBlock(vision_dim, num_heads=4)
-        
-        # Action head
-        self.action_head = nn.Sequential(
-            nn.Linear(vision_dim, 256),
+        self.net = nn.Sequential(
+            nn.Linear(hidden_size, 512),
             nn.GELU(),
             nn.Dropout(0.1),
-            nn.Linear(256, 128),
+            nn.Linear(512, 128),
             nn.GELU(),
             nn.Dropout(0.1),
             nn.Linear(128, 1),
-            nn.Tanh()
+            nn.Tanh(),
         )
-        
-        # Transform
-        self.transform = transforms.Compose([
-            transforms.Resize((224, 224)),  # ViT standard size
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], 
-                               std=[0.229, 0.224, 0.225])
-        ])
-    
-    def encode_prompt(self, prompt):
-        """プロンプトから数値を抽出（SimpleDNNVLAと同じ）"""
-        current_match = re.search(r'Current \w+: ([\d.]+)', prompt)
-        target_match = re.search(r'target[:\s]+([\d.]+)', prompt)
-        valve_match = re.search(r'Valve opening: ([\d.]+)%', prompt)
-        upstream_match = re.search(r'Upstream pressure: ([\d.]+)', prompt)
-        downstream_match = re.search(r'Downstream pressure: ([\d.]+)', prompt)
-        
-        current = float(current_match.group(1)) if current_match else 30.0
-        target = float(target_match.group(1)) if target_match else 30.0
-        valve = float(valve_match.group(1)) / 100 if valve_match else 0.5
-        upstream = float(upstream_match.group(1)) if upstream_match else 50.0
-        downstream = float(downstream_match.group(1)) if downstream_match else 30.0
-        
-        features = torch.tensor([
-            (current - 30.0) / 10.0,
-            (target - 30.0) / 10.0,
-            valve,
-            (upstream - 40.0) / 10.0,
-            (downstream - 30.0) / 10.0
-        ], dtype=torch.float32)
-        
-        return features
-    
-    def forward(self, images_dict, prompt):
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        # 最後のトークンの hidden state を使用
+        last_token = hidden_states[:, -1, :]  # [B, hidden_size]
+        return self.net(last_token)            # [B, 1]
+
+
+# ---------------------------------------------------------------------------
+# OpenVLA
+# ---------------------------------------------------------------------------
+class OpenVLA(nn.Module):
+    """
+    True OpenVLA: SigLIP + DINOv2 (vision) + Llama-2 7B (LLM) + LoRA + ActionHead
+
+    pretrained=True  → openvla/openvla-7b を HuggingFace からロード
+    pretrained=False → ランダム初期化（テスト用、実用では非推奨）
+    """
+
+    HF_MODEL_ID = "openvla/openvla-7b"
+    # Llama-2 7B の hidden size。モデル config から自動取得するが
+    # ネットワーク不通時のフォールバック値として保持する。
+    _LLAMA2_HIDDEN_SIZE = 4096
+
+    def __init__(
+        self,
+        pretrained: bool = True,
+        lora_rank: int = 32,
+        lora_alpha: int = 16,
+        use_4bit: bool = False,
+        local_model_path: str = None,
+    ):
+        super().__init__()
+
+        if not TRANSFORMERS_AVAILABLE:
+            raise ImportError(
+                "transformers が必要です:\n"
+                "  pip install transformers>=4.40.0 accelerate>=0.27.0"
+            )
+
+        model_path = local_model_path or self.HF_MODEL_ID
+
+        # --- Processor (tokenizer + image preprocessor) -------------------
+        logger.info(f"[OpenVLA] Loading processor from {model_path} ...")
+        self.processor = AutoProcessor.from_pretrained(
+            model_path,
+            trust_remote_code=True,
+        )
+
+        # --- Base model load kwargs ----------------------------------------
+        load_kwargs = dict(
+            trust_remote_code=True,
+            torch_dtype=torch.bfloat16,
+            low_cpu_mem_usage=True,
+        )
+
+        if use_4bit:
+            try:
+                from transformers import BitsAndBytesConfig
+                load_kwargs["quantization_config"] = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_compute_dtype=torch.bfloat16,
+                )
+                logger.info("[OpenVLA] 4-bit 量子化 (NF4) を使用")
+            except ImportError:
+                logger.warning("[OpenVLA] bitsandbytes が見つからないため 4-bit 量子化をスキップ")
+
+        # --- Load pretrained model -----------------------------------------
+        if pretrained:
+            logger.info(f"[OpenVLA] Loading pretrained model from {model_path} ...")
+            self.base_model = AutoModelForVision2Seq.from_pretrained(
+                model_path, **load_kwargs
+            )
+        else:
+            # テスト用: config だけロードしてランダム初期化
+            logger.warning("[OpenVLA] pretrained=False: ランダム初期化（テスト専用）")
+            from transformers import AutoConfig
+            config = AutoConfig.from_pretrained(model_path, trust_remote_code=True)
+            self.base_model = AutoModelForVision2Seq.from_config(
+                config, trust_remote_code=True
+            )
+
+        # --- Freeze vision backbone (SigLIP + DINOv2) ----------------------
+        self._freeze_vision_backbone()
+
+        # --- Apply LoRA to LLM (Llama-2) -----------------------------------
+        if PEFT_AVAILABLE and lora_rank > 0:
+            self._apply_lora(lora_rank, lora_alpha)
+        else:
+            logger.warning("[OpenVLA] LoRA をスキップ (peft 未インストールまたは rank=0)")
+
+        # --- Action head (float32 で学習安定性を確保) ----------------------
+        hidden_size = self._get_hidden_size()
+        logger.info(f"[OpenVLA] LLM hidden_size = {hidden_size}")
+        self.action_head = OpenVLAActionHead(hidden_size=hidden_size)
+
+        # Δvalve のスケール: Tanh 出力 [-1,1] → [-0.05, 0.05]
+        self.action_scale = 0.05
+
+    # -----------------------------------------------------------------------
+    # Setup helpers
+    # -----------------------------------------------------------------------
+
+    def _freeze_vision_backbone(self):
         """
-        推論
-        
+        vision_backbone.* パラメータを完全凍結。
+        SigLIP + DINOv2 の pretrained 重みを保護する。
+        """
+        frozen = 0
+        for name, param in self.base_model.named_parameters():
+            if name.startswith("vision_backbone."):
+                param.requires_grad = False
+                frozen += 1
+        logger.info(f"[OpenVLA] Vision backbone: {frozen} パラメータを凍結")
+
+    def _apply_lora(self, rank: int, alpha: int):
+        """
+        language_model.* の全 linear 層に LoRA を適用。
+        OpenVLA 公式 fine-tune スクリプトに準拠。
+        """
+        config = LoraConfig(
+            r=rank,
+            lora_alpha=alpha,
+            lora_dropout=0.0,
+            target_modules="all-linear",   # 全 linear 層（公式設定）
+            init_lora_weights="gaussian",
+            bias="none",
+        )
+        self.base_model = get_peft_model(self.base_model, config)
+        self.base_model.print_trainable_parameters()
+
+    def _get_hidden_size(self) -> int:
+        """Llama-2 7B の hidden_size を config から取得"""
+        try:
+            return self.base_model.config.hidden_size
+        except AttributeError:
+            pass
+        try:
+            return self.base_model.config.text_config.hidden_size
+        except AttributeError:
+            pass
+        return self._LLAMA2_HIDDEN_SIZE
+
+    # -----------------------------------------------------------------------
+    # Forward
+    # -----------------------------------------------------------------------
+
+    def forward(self, images_dict: dict, prompt: str) -> float:
+        """
         Args:
-            images_dict: Dict[str, PIL.Image]
-            prompt: str
-        
+            images_dict : Dict[str, PIL.Image]  ─ Redis から取得した可視化画像
+            prompt      : str  ─ PromptGenerator が生成した自然言語センサ記述
+
         Returns:
-            float: Δvalve_opening
+            float : Δvalve_opening ∈ [-0.05, 0.05]
         """
-        # 画像タイプの優先順位
-        image_types = [
-            'network_state_map', 'temporal_slice', 'phase_space', 'multiscale_change'
-        ]
-        
-        # フォールバック
-        if not any(img_type in images_dict for img_type in image_types):
-            image_types = ['system_ui', 'valve_detail', 'flow_dashboard', 'comparison']
-        
-        # 画像エンコーディング
-        image_features_list = []
-        for img_type in image_types:
-            img = images_dict.get(img_type)
-            if img is None:
-                img = Image.new('RGB', (256, 256), color=(128, 128, 128))
-            
-            img_tensor = self.transform(img).unsqueeze(0)  # [1, 3, 224, 224]
-            features = self.vision_encoder(img_tensor)  # [1, 192]
-            image_features_list.append(features)
-        
-        # Stack: [1, 4, 192]
-        image_features = torch.stack(image_features_list, dim=1)
-        
-        # プロンプトエンコーディング
-        prompt_raw = self.encode_prompt(prompt).unsqueeze(0)  # [1, 5]
-        prompt_features = self.prompt_encoder(prompt_raw).unsqueeze(1)  # [1, 1, 192]
-        
-        # Cross-attention: prompt attends to images
-        attended_features = self.cross_attention1(prompt_features, image_features)  # [1, 1, 192]
-        attended_features = self.cross_attention2(attended_features, image_features)  # [1, 1, 192]
-        
-        # Pool
-        final_features = attended_features.squeeze(1)  # [1, 192]
-        
-        # Action prediction
-        delta_valve = self.action_head(final_features) * 0.05  # [-0.05, 0.05]
-        
+        image = self._pick_image(images_dict)
+
+        # PrismaticProcessor: "<image> {prompt}" 形式を期待
+        inputs = self.processor(
+            text=f"<image> {prompt}",
+            images=image,
+            return_tensors="pt",
+        )
+
+        device = next(self.base_model.parameters()).device
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+
+        # Forward pass (hidden states を取得)
+        outputs = self.base_model(
+            **inputs,
+            output_hidden_states=True,
+            return_dict=True,
+        )
+
+        # outputs.hidden_states: tuple of [B, seq_len, hidden_size]
+        # 最終層 (index -1) を使用, float32 に変換して action head へ
+        last_hidden = outputs.hidden_states[-1].float()  # [1, seq_len, hidden_size]
+
+        delta_valve = self.action_head(last_hidden) * self.action_scale  # [1, 1]
         return delta_valve.item()
 
+    # -----------------------------------------------------------------------
+    # Image selection helper
+    # -----------------------------------------------------------------------
 
-class OpenVLAWrapper:
-    """OpenVLAのラッパー（SimpleDNNVLAと同じインターフェース）"""
-    
-    def __init__(self, checkpoint_path=None):
-        self.model = OpenVLA()
-        
-        if checkpoint_path:
-            try:
-                self.model.load_state_dict(torch.load(checkpoint_path, map_location='cpu'))
-                print(f"[OpenVLA] Loaded checkpoint from {checkpoint_path}")
-            except Exception as e:
-                print(f"[OpenVLA] Warning: Could not load checkpoint: {e}")
-                print("[OpenVLA] Using random initialization")
-        
-        self.model.eval()
-        print("[OpenVLA] Initialized OpenVLA Model")
-        if TIMM_AVAILABLE:
-            print("[OpenVLA] Architecture: Vision Transformer + Cross-Attention")
-        else:
-            print("[OpenVLA] Architecture: CNN + Cross-Attention (timm not available)")
-        print("[OpenVLA] Parameters: ~5M")
-    
-    def predict(self, images, prompt):
+    def _pick_image(self, images_dict: dict) -> Image.Image:
+        """優先順位に従って最初に見つかった画像を返す"""
+        for key in (
+            "network_state_map", "temporal_slice", "phase_space", "multiscale_change",
+            "system_ui", "valve_detail", "flow_dashboard", "comparison",
+        ):
+            if key in images_dict:
+                return images_dict[key]
+        return Image.new("RGB", (256, 256), color=(128, 128, 128))
+
+    # -----------------------------------------------------------------------
+    # Checkpoint I/O
+    # -----------------------------------------------------------------------
+
+    def save_trainable_weights(self, checkpoint_dir: str):
         """
-        推論
-        
+        学習対象の重みのみ保存:
+          - LoRA adapter weights  (adapter_config.json + adapter_model.bin)
+          - Action head           (action_head.pt)
+          - Projector             (projector.pt)
+        """
+        os.makedirs(checkpoint_dir, exist_ok=True)
+
+        # LoRA weights
+        if PEFT_AVAILABLE:
+            self.base_model.save_pretrained(checkpoint_dir)
+            logger.info(f"[OpenVLA] LoRA weights saved to {checkpoint_dir}")
+
+        # Action head
+        action_head_path = os.path.join(checkpoint_dir, "action_head.pt")
+        torch.save(self.action_head.state_dict(), action_head_path)
+        logger.info(f"[OpenVLA] Action head saved to {action_head_path}")
+
+        # Projector (base_model.projector)
+        try:
+            projector_path = os.path.join(checkpoint_dir, "projector.pt")
+            torch.save(self.base_model.projector.state_dict(), projector_path)
+            logger.info(f"[OpenVLA] Projector saved to {projector_path}")
+        except AttributeError:
+            logger.debug("[OpenVLA] projector not found in base_model, skipping")
+
+    def load_trainable_weights(self, checkpoint_dir: str):
+        """
+        save_trainable_weights() で保存したディレクトリからロード。
+        """
+        if not os.path.isdir(checkpoint_dir):
+            logger.warning(f"[OpenVLA] Checkpoint directory not found: {checkpoint_dir}")
+            return
+
+        # LoRA weights
+        adapter_config = os.path.join(checkpoint_dir, "adapter_config.json")
+        if PEFT_AVAILABLE and os.path.exists(adapter_config):
+            self.base_model = PeftModel.from_pretrained(
+                self.base_model, checkpoint_dir
+            )
+            logger.info(f"[OpenVLA] LoRA weights loaded from {checkpoint_dir}")
+
+        # Action head
+        action_head_path = os.path.join(checkpoint_dir, "action_head.pt")
+        if os.path.exists(action_head_path):
+            self.action_head.load_state_dict(
+                torch.load(action_head_path, map_location="cpu")
+            )
+            logger.info(f"[OpenVLA] Action head loaded from {action_head_path}")
+
+        # Projector
+        projector_path = os.path.join(checkpoint_dir, "projector.pt")
+        if os.path.exists(projector_path):
+            try:
+                self.base_model.projector.load_state_dict(
+                    torch.load(projector_path, map_location="cpu")
+                )
+                logger.info(f"[OpenVLA] Projector loaded from {projector_path}")
+            except AttributeError:
+                logger.debug("[OpenVLA] projector not found in base_model, skipping")
+
+
+# ---------------------------------------------------------------------------
+# Wrapper (既存インターフェース互換)
+# ---------------------------------------------------------------------------
+class OpenVLAWrapper:
+    """
+    OpenVLA の既存インターフェース互換ラッパー。
+
+    checkpoint_path:
+      - None      → pretrained 重みのみ使用
+      - str (dir) → LoRA + action head をロード
+    """
+
+    def __init__(self, checkpoint_path: str = None, use_4bit: bool = False):
+        self.model = OpenVLA(use_4bit=use_4bit)
+
+        if checkpoint_path:
+            if os.path.isdir(checkpoint_path):
+                # 新形式: LoRA ディレクトリ
+                self.model.load_trainable_weights(checkpoint_path)
+            elif os.path.isfile(checkpoint_path):
+                # 旧形式: .pt ファイル → action head として読み込みを試みる
+                logger.warning(
+                    f"[OpenVLA] .pt ファイルが指定されました: {checkpoint_path}\n"
+                    "  新形式はディレクトリです。action head の state dict として読み込みを試みます。"
+                )
+                try:
+                    state = torch.load(checkpoint_path, map_location="cpu")
+                    self.model.action_head.load_state_dict(state)
+                    logger.info("[OpenVLA] Action head loaded from legacy .pt file")
+                except Exception as e:
+                    logger.warning(f"[OpenVLA] Legacy checkpoint load failed: {e}")
+
+        self.model.eval()
+        logger.info("[OpenVLA] Ready")
+        logger.info("[OpenVLA] Architecture: SigLIP + DINOv2 (frozen) + Llama-2 7B (LoRA) + ActionHead")
+
+    def predict(self, images: dict, prompt: str) -> float:
+        """
         Args:
-            images: Dict[str, PIL.Image]
-            prompt: str
-        
+            images : Dict[str, PIL.Image]
+            prompt : str
+
         Returns:
-            float: Δvalve_opening
+            float : Δvalve_opening ∈ [-0.05, 0.05]
         """
         with torch.no_grad():
-            action = self.model(images, prompt)
-        
-        return float(action)
+            return float(self.model(images, prompt))
 
 
+# ---------------------------------------------------------------------------
+# Smoke test
+# ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    # Test
-    print("Testing OpenVLA...")
-    
+    logging.basicConfig(level=logging.INFO)
+    print("Testing OpenVLA wrapper (pretrained=False, smoke test only)...")
+
     images = {
-        'network_state_map': Image.new('RGB', (256, 256), color=(100, 150, 200)),
-        'temporal_slice': Image.new('RGB', (256, 256), color=(150, 100, 200)),
-        'phase_space': Image.new('RGB', (256, 256), color=(200, 150, 100)),
-        'multiscale_change': Image.new('RGB', (256, 256), color=(150, 200, 100))
+        "network_state_map": Image.new("RGB", (256, 256), color=(100, 150, 200)),
+        "temporal_slice":    Image.new("RGB", (256, 256), color=(150, 100, 200)),
+        "phase_space":       Image.new("RGB", (256, 256), color=(200, 150, 100)),
+        "multiscale_change": Image.new("RGB", (256, 256), color=(150, 200, 100)),
     }
-    
-    prompt = "Current pressure: 35.5m, target: 30.0m, Valve opening: 75.0%"
-    
-    model = OpenVLAWrapper()
-    action = model.predict(images, prompt)
-    
+    prompt = "Current pressure: 35.5m at Node 2\nTarget: 30.0m\nValve opening: 75.0%"
+
+    # pretrained=False はランダム初期化のためモデルダウンロード不要
+    model = OpenVLA(pretrained=False)
+    model.eval()
+    with torch.no_grad():
+        action = model(images, prompt)
     print(f"Result: delta_valve = {action:.4f}")

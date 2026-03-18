@@ -1,10 +1,11 @@
-FROM python:3.10-slim
+FROM pytorch/pytorch:2.1.2-cuda12.1-cudnn8-runtime
 
 WORKDIR /app
 
-# 必要なパッケージのインストール
+# システムパッケージ
 RUN apt-get update && apt-get install -y \
     build-essential \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 # 依存関係のインストール
